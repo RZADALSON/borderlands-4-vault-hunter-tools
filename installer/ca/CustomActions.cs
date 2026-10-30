@@ -26,9 +26,9 @@ public static class CustomActions
                 return ActionResult.Success;
             }
 
-            // Given on the command line
-            string given = session["INSTALLFOLDER"];
-            if (!string.IsNullOrEmpty(given) && IsGameFolder(given))
+            // Chosen in the dialog, or given on the command line. Never swap that for another folder,
+            // if it's wrong it should be refused.
+            if (!string.IsNullOrEmpty(session["INSTALLFOLDER"]))
             {
                 return ActionResult.Success;
             }

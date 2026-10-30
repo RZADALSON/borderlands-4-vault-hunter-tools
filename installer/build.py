@@ -14,7 +14,7 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw
 
-VERSION = "1.1.0"
+VERSION = "1.1.1"
 VCREDIST_MINOR = "50"  # The oldest Visual C++ runtime which doesn't get replaced
 
 HERE = Path(__file__).resolve().parent

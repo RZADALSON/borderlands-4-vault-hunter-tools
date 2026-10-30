@@ -2,8 +2,9 @@
 
 Filtr lootu do Borderlands 4 z instalatorem MSI. Wskazujesz folder gry, a resztę instalator robi sam.
 
-> **Status: wersja testowa.** Filtr działa w grze autora, ale sam instalator nie przeszedł jeszcze pełnego
-> testu instalacji i odinstalowania. Sprawdzono jego zawartość i strukturę. Przed instalacją zamknij grę.
+> **Status: wersja testowa.** Filtr działa w grze autora. Instalacja, naprawa i odinstalowanie przeszły test
+> na fałszywym folderze gry, ale instalator nie był jeszcze sprawdzony z prawdziwą grą na innym komputerze.
+> Przed instalacją zamknij grę.
 
 ## Co potrafi
 
