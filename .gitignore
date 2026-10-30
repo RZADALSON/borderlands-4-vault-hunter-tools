@@ -1,0 +1,8 @@
+__pycache__/
+*.sdkmod
+installer/tools/
+installer/build/
+installer/dist/
+installer/vendor/
+installer/ca/bin/
+installer/ca/obj/

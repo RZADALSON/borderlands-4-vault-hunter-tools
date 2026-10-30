@@ -1,0 +1,9 @@
+[project]
+name = "GroundItemHider"
+version = "1.1"
+description = "Filtr lootu: ukrywa wybrane itemy na ziemi albo mocno je podświetla, z radarem."
+
+[tool.sdkmod]
+name = "Ground Item Hider"
+license = { name = "GPL3", url = "https://choosealicense.com/licenses/gpl-3.0/" }
+coop_support = "ClientSide"

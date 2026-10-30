@@ -1,0 +1,175 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
+  <Package Name="!(loc.ProductName)"
+           Manufacturer="!(loc.ProductName)"
+           Version="$(ProductVersion)"
+           UpgradeCode="6D2F0A57-3C1E-4F4B-9A86-0C5A7E41B2D3"
+           Scope="perMachine"
+           Language="1045"
+           Codepage="1250"
+           Compressed="yes">
+    <MajorUpgrade DowngradeErrorMessage="!(loc.NewerInstalled)" />
+    <MediaTemplate EmbedCab="yes" />
+
+    <!-- The mod menu can update these, and they're never versioned: without this, a file changed
+         since it was installed would be kept on an upgrade. Settings are safe, see below. -->
+    <Property Id="REINSTALLMODE" Value="amus" />
+
+    <Property Id="ARPNOMODIFY" Value="1" />
+    <Property Id="VCREDIST_MINOR" Value="$(VcRedistMinor)" />
+    <Property Id="INSTALLFOLDER" Secure="yes" />
+    <Property Id="WIXUI_EXITDIALOGOPTIONALTEXT" Value="!(loc.ExitNote)" />
+
+    <!-- Windows doesn't remember where a chosen folder was. Uninstalling needs it. -->
+    <Property Id="INSTALLFOLDER_SAVED" Secure="yes">
+      <RegistrySearch Id="SavedInstallFolder" Root="HKLM" Key="Software\GroundItemHider" Name="InstallFolder" Type="raw" Bitness="always64" />
+    </Property>
+
+    <Feature Id="Everything" AllowAbsent="no">
+      <ComponentGroupRef Id="PayloadFiles" />
+      <ComponentRef Id="RememberFolder" />
+      <ComponentRef Id="DefaultSettings" />
+      <ComponentRef Id="CleanUpMenuPak" />
+      <ComponentRef Id="CleanUpMenuLink" />
+      <ComponentRef Id="CleanUpMenuPages" />
+      <ComponentRef Id="CleanUpSdkLog" />
+      <ComponentRef Id="CleanUpPythonCache" />
+    </Feature>
+
+    <Binary Id="GameFolderActions" SourceFile="$(CaDll)" />
+    <Binary Id="VcRedist" SourceFile="$(VcRedistExe)" />
+
+    <CustomAction Id="DetectGameFolder" BinaryRef="GameFolderActions" DllEntry="DetectGameFolder" Execute="immediate" Return="ignore" />
+    <CustomAction Id="ValidateGameFolder" BinaryRef="GameFolderActions" DllEntry="ValidateGameFolder" Execute="immediate" Return="check" />
+    <CustomAction Id="ValidateGameFolderExecute" BinaryRef="GameFolderActions" DllEntry="ValidateGameFolderExecute" Execute="immediate" Return="check" />
+    <CustomAction Id="InstallVcRedist" BinaryRef="GameFolderActions" DllEntry="InstallVcRedist" Execute="immediate" Return="ignore" />
+
+    <InstallUISequence>
+      <Custom Action="DetectGameFolder" After="AppSearch" />
+    </InstallUISequence>
+    <InstallExecuteSequence>
+      <Custom Action="DetectGameFolder" After="AppSearch" />
+      <Custom Action="ValidateGameFolderExecute" Before="InstallInitialize" Condition="NOT REMOVE" />
+      <Custom Action="InstallVcRedist" After="InstallFinalize" Condition="NOT REMOVE" />
+    </InstallExecuteSequence>
+
+    <StandardDirectory Id="ProgramFiles6432Folder">
+      <Directory Id="INSTALLFOLDER" Name="Borderlands 4">
+        <Directory Id="SdkModsFolder" Name="sdk_mods">
+          <Directory Id="SettingsFolder" Name="settings" />
+          <Directory Id="KeybindsFolder" Name="keybinds">
+            <Directory Id="PythonCacheFolder" Name="__pycache__" />
+          </Directory>
+        </Directory>
+        <Directory Id="OakGameFolder" Name="OakGame">
+          <Directory Id="BinariesFolder" Name="Binaries">
+            <Directory Id="Win64Folder" Name="Win64">
+              <Directory Id="PluginsFolder" Name="Plugins" />
+            </Directory>
+          </Directory>
+          <Directory Id="ContentFolder" Name="Content">
+            <Directory Id="PaksFolder" Name="Paks">
+              <Directory Id="ModPaksFolder" Name="~mods" />
+            </Directory>
+            <Directory Id="UiResourcesFolder" Name="uiresources">
+              <Directory Id="MenuLinkFolder" Name="bl4link" />
+              <Directory Id="MenuPagesFolder" Name="bl4modmenu" />
+            </Directory>
+          </Directory>
+        </Directory>
+      </Directory>
+    </StandardDirectory>
+
+    <ComponentGroup Id="PayloadFiles">
+      <Files Directory="INSTALLFOLDER" Include="$(PayloadDir)\**" />
+    </ComponentGroup>
+
+    <Component Id="RememberFolder" Directory="INSTALLFOLDER" Guid="8B1E44C2-9D0A-4E61-8F35-2A7C6D90E1B4" Bitness="always64">
+      <RegistryValue Root="HKLM" Key="Software\GroundItemHider" Name="InstallFolder" Type="string" Value="[INSTALLFOLDER]" KeyPath="yes" />
+    </Component>
+
+    <!-- Turns the filter on by default. Your own settings are never replaced, or removed. -->
+    <Component Id="DefaultSettings" Directory="SettingsFolder" Guid="1F7A3E90-5B2C-4D18-A6E7-93C04B7D2F61" NeverOverwrite="yes" Permanent="yes" Bitness="always64">
+      <File Id="DefaultSettingsFile" Source="$(SettingsFile)" Name="GroundItemHider.json" KeyPath="yes" />
+    </Component>
+
+    <!-- What the mod menu makes while the game runs. It's no use, or even harmful, without the SDK. -->
+    <Component Id="CleanUpMenuPak" Directory="ModPaksFolder" Guid="A30C6B18-7E42-4C95-B1D8-5F2E90A7C346" Bitness="always64">
+      <RegistryValue Root="HKLM" Key="Software\GroundItemHider" Name="CleanUpMenuPak" Type="integer" Value="1" KeyPath="yes" />
+      <RemoveFile Id="RemoveMenuPak" Name="BL4Fix_UILink_*_P.pak" On="uninstall" />
+      <RemoveFolder Id="RemoveModPaksFolder" On="uninstall" />
+    </Component>
+    <Component Id="CleanUpMenuLink" Directory="MenuLinkFolder" Guid="C74D1A25-2F86-49B3-8E06-71BD3C5F9A02" Bitness="always64">
+      <RegistryValue Root="HKLM" Key="Software\GroundItemHider" Name="CleanUpMenuLink" Type="integer" Value="1" KeyPath="yes" />
+      <RemoveFile Id="RemoveMenuLinkFiles" Name="*" On="uninstall" />
+      <RemoveFolder Id="RemoveMenuLinkFolder" On="uninstall" />
+    </Component>
+    <Component Id="CleanUpMenuPages" Directory="MenuPagesFolder" Guid="E95F2B36-4A71-4D08-9C13-86AE1D7B4C50" Bitness="always64">
+      <RegistryValue Root="HKLM" Key="Software\GroundItemHider" Name="CleanUpMenuPages" Type="integer" Value="1" KeyPath="yes" />
+      <RemoveFile Id="RemoveMenuPagesFiles" Name="*" On="uninstall" />
+      <RemoveFolder Id="RemoveMenuPagesFolder" On="uninstall" />
+    </Component>
+    <Component Id="CleanUpSdkLog" Directory="PluginsFolder" Guid="07B8E3C4-6D15-4A92-B7F0-3C9D82E1A564" Bitness="always64">
+      <RegistryValue Root="HKLM" Key="Software\GroundItemHider" Name="CleanUpSdkLog" Type="integer" Value="1" KeyPath="yes" />
+      <RemoveFile Id="RemoveSdkLog" Name="unrealsdk.log" On="uninstall" />
+    </Component>
+    <Component Id="CleanUpPythonCache" Directory="PythonCacheFolder" Guid="2C6A9F71-8E03-4B5D-A1C7-F4D60E38B295" Bitness="always64">
+      <RegistryValue Root="HKLM" Key="Software\GroundItemHider" Name="CleanUpPythonCache" Type="integer" Value="1" KeyPath="yes" />
+      <RemoveFile Id="RemovePythonCacheFiles" Name="*" On="uninstall" />
+      <RemoveFolder Id="RemovePythonCacheFolder" On="uninstall" />
+    </Component>
+
+    <WixVariable Id="WixUIBannerBmp" Value="$(BannerBmp)" />
+    <WixVariable Id="WixUIDialogBmp" Value="$(DialogBmp)" />
+
+    <UI Id="GameFolderUI">
+      <TextStyle Id="WixUI_Font_Normal" FaceName="Tahoma" Size="8" />
+      <TextStyle Id="WixUI_Font_Bigger" FaceName="Tahoma" Size="12" />
+      <TextStyle Id="WixUI_Font_Title" FaceName="Tahoma" Size="9" Bold="yes" />
+      <Property Id="DefaultUIFont" Value="WixUI_Font_Normal" />
+      <Property Id="WIXUI_INSTALLDIR" Value="INSTALLFOLDER" />
+
+      <DialogRef Id="BrowseDlg" />
+      <DialogRef Id="DiskCostDlg" />
+      <DialogRef Id="ErrorDlg" />
+      <DialogRef Id="FatalError" />
+      <DialogRef Id="FilesInUse" />
+      <DialogRef Id="MsiRMFilesInUse" />
+      <DialogRef Id="PrepareDlg" />
+      <DialogRef Id="ProgressDlg" />
+      <DialogRef Id="ResumeDlg" />
+      <DialogRef Id="UserExit" />
+
+      <Dialog Id="GameFolderErrorDlg" Width="260" Height="95" Title="!(loc.ProductName)">
+        <Control Id="Text" Type="Text" X="20" Y="15" Width="220" Height="45" Text="[GAME_FOLDER_ERROR]" />
+        <Control Id="OK" Type="PushButton" X="102" Y="67" Width="56" Height="17" Default="yes" Cancel="yes" Text="!(loc.WixUIOK)">
+          <Publish Event="EndDialog" Value="Return" />
+        </Control>
+      </Dialog>
+
+      <Publish Dialog="ExitDialog" Control="Finish" Event="EndDialog" Value="Return" Order="999" />
+
+      <Publish Dialog="WelcomeDlg" Control="Next" Event="NewDialog" Value="InstallDirDlg" Condition="NOT Installed" />
+      <Publish Dialog="WelcomeDlg" Control="Next" Event="NewDialog" Value="VerifyReadyDlg" Condition="Installed AND PATCH" />
+
+      <Publish Dialog="InstallDirDlg" Control="Back" Event="NewDialog" Value="WelcomeDlg" />
+      <Publish Dialog="InstallDirDlg" Control="Next" Event="SetTargetPath" Value="[WIXUI_INSTALLDIR]" Order="1" />
+      <Publish Dialog="InstallDirDlg" Control="Next" Event="DoAction" Value="ValidateGameFolder" Order="2" />
+      <Publish Dialog="InstallDirDlg" Control="Next" Event="SpawnDialog" Value="GameFolderErrorDlg" Order="3" Condition="GAME_FOLDER_OK&lt;&gt;&quot;1&quot;" />
+      <Publish Dialog="InstallDirDlg" Control="Next" Event="NewDialog" Value="VerifyReadyDlg" Order="4" Condition="GAME_FOLDER_OK=&quot;1&quot;" />
+      <Publish Dialog="InstallDirDlg" Control="ChangeFolder" Property="_BrowseProperty" Value="[WIXUI_INSTALLDIR]" Order="1" />
+      <Publish Dialog="InstallDirDlg" Control="ChangeFolder" Event="SpawnDialog" Value="BrowseDlg" Order="2" />
+
+      <Publish Dialog="VerifyReadyDlg" Control="Back" Event="NewDialog" Value="InstallDirDlg" Order="1" Condition="NOT Installed" />
+      <Publish Dialog="VerifyReadyDlg" Control="Back" Event="NewDialog" Value="MaintenanceTypeDlg" Order="2" Condition="Installed AND NOT PATCH" />
+      <Publish Dialog="VerifyReadyDlg" Control="Back" Event="NewDialog" Value="WelcomeDlg" Order="2" Condition="Installed AND PATCH" />
+
+      <Publish Dialog="MaintenanceWelcomeDlg" Control="Next" Event="NewDialog" Value="MaintenanceTypeDlg" />
+      <Publish Dialog="MaintenanceTypeDlg" Control="RepairButton" Event="NewDialog" Value="VerifyReadyDlg" />
+      <Publish Dialog="MaintenanceTypeDlg" Control="RemoveButton" Event="NewDialog" Value="VerifyReadyDlg" />
+      <Publish Dialog="MaintenanceTypeDlg" Control="Back" Event="NewDialog" Value="MaintenanceWelcomeDlg" />
+    </UI>
+    <UIRef Id="WixUI_Common" />
+  </Package>
+</Wix>

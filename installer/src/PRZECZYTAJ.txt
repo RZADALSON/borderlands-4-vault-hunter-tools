@@ -1,0 +1,35 @@
+Ground Item Hider dla Borderlands 4
+
+Ten instalator kopiuje do folderu gry pakiet od kilku autorów. Żaden plik samej gry nie jest
+rozpowszechniany ani zmieniany.
+
+
+Co zawiera
+
+Ground Item Hider
+  Filtr lootu: ukrywa wybrane itemy na ziemi albo je podświetla. Licencja GPL-3.0.
+  Kod źródłowy jest w sdk_mods\GroundItemHider.sdkmod (to zwykłe archiwum ZIP).
+  Rozpoznawanie rzadkości jest zaadaptowane z BL4 Loot Filter (Lango, GPL-3.0):
+  https://github.com/jlangowells/bl4_loot_filter
+
+Oak2 Mod Manager v0.3, z unrealsdk i pyunrealsdk (bl-sdk). Licencja LGPL-3.0.
+  https://github.com/bl-sdk/oak2-mod-manager
+
+BL4 Mod Menu (flameaway). Licencja GPL-3.0.
+  Kod źródłowy jest w sdk_mods\bl4_mod_menu.sdkmod oraz na stronie:
+  https://github.com/flameaway/bl4-fix
+
+Python 3.14 (Python Software Foundation). Licencja PSF, plik Python-LICENSE.txt.
+
+Microsoft Visual C++ Redistributable
+  Instaluje się osobno, tylko gdy go brakuje, na warunkach licencji Microsoftu.
+
+
+Teksty licencji są w tym folderze. Oprogramowanie jest dostarczane bez żadnej gwarancji.
+Nie jest to produkt firmy Gearbox ani 2K.
+
+
+Odinstalowanie
+
+Ustawienia Windows, Zainstalowane aplikacje, Ground Item Hider dla Borderlands 4.
+Twoje ustawienia modów i mody doinstalowane osobno zostają w folderze sdk_mods.
