@@ -1,15 +1,17 @@
 """
 Ground Item Hider: a client-side loot filter for Borderlands 4.
 
-Instead of teleporting or deleting loot, this only hides it. The pickup stays exactly where it
-dropped, so turning the filter off brings it straight back.
+Instead of teleporting or deleting loot, this only hides it, and stops it being picked up. The
+pickup stays exactly where it dropped, so turning the filter off brings it straight back.
 
-An item is hidden if its rarity, manufacturer or type is selected. Items we can't recognize always
-stay visible.
+An item is hidden if its rarity, manufacturer, type or level says so. Items we can't recognize always
+stay visible, as does what you drop yourself. The banner counts what's hidden, and the gear still
+lying around, so you know if it's worth looking for more.
 
 In highlight mode nothing is hidden. The selected items instead get a much stronger loot beam, and a
-marker on a small radar. The game's own radar and compass are fed by native code we can't reach, so
-this radar is our own widget.
+marker on the game's own radar. What feeds that is native code we can't reach, but it's drawn by a
+HTML page, so a script in that page adds our markers next to its own. If that's not running, there's
+a small radar of our own instead.
 
 Reading rarity from the loot beam is adapted from BL4 Loot Filter by Lango (GPL-3.0), which credits
 SlippyCheeze for the original logic. https://github.com/jlangowells/bl4_loot_filter
@@ -31,11 +33,12 @@ import struct
 import sys
 import time
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, NamedTuple
 
 from mods_base import (
     BaseOption,
     BoolOption,
+    ButtonOption,
     NestedOption,
     SliderOption,
     SpinnerOption,
@@ -62,6 +65,7 @@ HEALTH = "Health"
 MONEY = "Money"
 ERIDIUM = "Eridium"
 SHIELD_BOOSTER = "Shield Boosters"
+ARMOR_SHARD = "Armor Shards"
 MISSION = "Mission"
 
 PISTOL = "Pistols"
@@ -155,6 +159,13 @@ FIRMWARE_NAMES = {
 # Where a pickup keeps its serial. These can move with a game update, in which case what's there
 # doesn't look like a serial, and the firmware just stays unknown.
 PICKUP_IDENTITY = 0x3F0
+# An identity holds the item's parts too, which unlike its serial are there on the ground: a list of
+# definitions, each knowing its index in its table, and which table (item type) that is.
+IDENTITY_COMPOSITION = 0x8
+IDENTITY_PARTS = 0x10
+DEFINITION_SERIAL_INDEX = 0x18 + 0x12
+DEFINITION_OWNER = 0x30
+MAX_PARTS = 64
 IDENTITY_SERIAL_POINTER = 0xA0
 IDENTITY_SERIAL_LENGTH = 0xB0
 SERIAL_MAX_LENGTH = 4096
@@ -162,6 +173,93 @@ SERIAL_ALPHABET = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxy
 SERIAL_DIGITS = {char: value for value, char in enumerate(SERIAL_ALPHABET)}
 SERIAL_PAD = 84
 SERIAL_MAGIC = "0010000"
+
+# What the first number in a serial means, from the same tables. These are far more reliable than
+# guessing from paths, some gear has no manufacturer in them at all: legendary repair kits, for one.
+ITEM_TYPES = {
+    2: ("Daedalus", PISTOL),
+    3: ("Jakobs", PISTOL),
+    4: ("Order", PISTOL),
+    5: ("Tediore", PISTOL),
+    6: ("Torgue", PISTOL),
+    7: ("Ripper", SHOTGUN),
+    8: ("Daedalus", SHOTGUN),
+    9: ("Jakobs", SHOTGUN),
+    10: ("Maliwan", SHOTGUN),
+    11: ("Tediore", SHOTGUN),
+    12: ("Torgue", SHOTGUN),
+    13: ("Daedalus", ASSAULT_RIFLE),
+    14: ("Tediore", ASSAULT_RIFLE),
+    15: ("Order", ASSAULT_RIFLE),
+    16: ("Vladof", SNIPER),
+    17: ("Torgue", ASSAULT_RIFLE),
+    18: ("Vladof", ASSAULT_RIFLE),
+    19: ("Ripper", SMG),
+    20: ("Daedalus", SMG),
+    21: ("Maliwan", SMG),
+    22: ("Vladof", SMG),
+    23: ("Ripper", SNIPER),
+    24: ("Jakobs", SNIPER),
+    25: ("Maliwan", SNIPER),
+    26: ("Order", SNIPER),
+    27: ("Jakobs", ASSAULT_RIFLE),
+    261: ("Torgue", REPAIR_KIT),
+    263: ("Maliwan", GRENADE),
+    264: ("Hyperion", ENHANCEMENT),
+    265: ("Jakobs", REPAIR_KIT),
+    266: ("Maliwan", REPAIR_KIT),
+    267: ("Jakobs", GRENADE),
+    268: ("Jakobs", ENHANCEMENT),
+    269: ("Vladof", REPAIR_KIT),
+    270: ("Daedalus", GRENADE),
+    271: ("Maliwan", ENHANCEMENT),
+    272: ("Order", GRENADE),
+    273: ("Torgue", HEAVY_WEAPON),
+    274: ("Ripper", REPAIR_KIT),
+    275: ("Ripper", HEAVY_WEAPON),
+    277: ("Daedalus", REPAIR_KIT),
+    278: ("Ripper", GRENADE),
+    279: ("Maliwan", SHIELD),
+    281: ("Order", ENHANCEMENT),
+    282: ("Vladof", HEAVY_WEAPON),
+    283: ("Vladof", SHIELD),
+    284: ("Atlas", ENHANCEMENT),
+    285: ("Order", REPAIR_KIT),
+    286: ("COV", ENHANCEMENT),
+    287: ("Tediore", SHIELD),
+    289: ("Maliwan", HEAVY_WEAPON),
+    290: ("Tediore", REPAIR_KIT),
+    291: ("Vladof", GRENADE),
+    292: ("Tediore", ENHANCEMENT),
+    293: ("Order", SHIELD),
+    296: ("Ripper", ENHANCEMENT),
+    298: ("Torgue", GRENADE),
+    299: ("Daedalus", ENHANCEMENT),
+    300: ("Ripper", SHIELD),
+    303: ("Torgue", ENHANCEMENT),
+    305: ("Ripper", None),
+    306: ("Jakobs", SHIELD),
+    307: ("Daedalus", None),
+    309: ("Jakobs", None),
+    310: ("Vladof", ENHANCEMENT),
+    311: ("Tediore", GRENADE),
+    312: ("Daedalus", SHIELD),
+    319: ("Maliwan", None),
+    321: ("Torgue", SHIELD),
+    322: ("Order", None),
+    323: ("Vladof", None),
+    325: ("Tediore", None),
+    326: ("Order", None),
+    327: ("Torgue", None),
+    328: ("Vladof", None),
+    335: ("Ripper", None),
+    360: ("Daedalus", None),
+    373: ("Jakobs", None),
+    374: ("Maliwan", None),
+    377: ("Tediore", None),
+    378: ("Torgue", None),
+}
+CLASS_MOD_TYPES = {254: "Vex", 255: "Amon", 256: "Rafa", 259: "Harlowe", 402: "Loveless", 404: "C4SH"}
 
 # The value of the beam's User.Color parameter. Both palettes have been seen in the live game.
 BEAM_COLORS = (
@@ -185,14 +283,21 @@ BEAM_COLOR_TOLERANCE = 0.00002
 
 # Some pickups have no BodyData or beam, these are matched against the material's name instead.
 PICKUP_MATERIAL_NAMES = {
-    "Ammo": AMMO,
+    "armorshard": ARMOR_SHARD,
+    "shieldbooster": SHIELD_BOOSTER,
+    "health": HEALTH,
     "ammo": AMMO,
-    "AMMO": AMMO,
-    "Health": HEALTH,
-    "Money": MONEY,
-    "Eridium": ERIDIUM,
-    "ShieldBooster": SHIELD_BOOSTER,
-    "ShieldBoosters": SHIELD_BOOSTER,
+    "money": MONEY,
+    "eridium": ERIDIUM,
+}
+
+# How ammo's material names say what it's for, e.g. MI_AMMO_SMG
+AMMO_MATERIAL_NAMES = {
+    "sniper": SNIPER,
+    "shotgun": SHOTGUN,
+    "assault": ASSAULT_RIFLE,
+    "smg": SMG,
+    "pistol": PISTOL,
 }
 
 NIAGARA_FALSE = bytes((0x00, 0x00, 0x00, 0x00))
@@ -214,6 +319,12 @@ BANNER_COLOR_HIGHLIGHT = (1.0, 0.0, 0.45, 1.0)
 BANNER_TEXT_COLOR = (0.776, 0.693, 0.617, 1.0)
 BANNER_TEXT_HIGHLIGHT = "FILTR AKTYWNY: PODSWIETLANIE"
 RESTART_NOTICE_TEXT = "Uruchom grę ponownie, aby włączyć menu modów (F7)"
+# What the mod menu's status means for the player. Nothing to say about the rest.
+MENU_NOTICES = {
+    "next_start": RESTART_NOTICE_TEXT,
+    "game_changed": "Patch gry: menu modów czeka na aktualizację, F7 otworzy prosty panel",
+    "conflict": "Inny mod blokuje menu modów, F7 otworzy prosty panel",
+}
 RESTART_NOTICE_FONT_SIZE = 13
 RESTART_NOTICE_TOP = 62.0  # Leaves room for the banner above it
 
@@ -248,6 +359,7 @@ PICKUP_LABELS = {
     MONEY: "Pieniądze",
     ERIDIUM: "Eridium",
     SHIELD_BOOSTER: "Wzmocnienia tarczy",
+    ARMOR_SHARD: "Odłamki pancerza",
 }
 
 # What the loot beam (NS_FX_Item_Loot_Beams) is told to do. The colour has no upper limit, anything
@@ -271,12 +383,38 @@ INCOMPLETE_RETRY = 0.5  # A fresh drop may not have its beam set up yet
 BOOST_CHECK_INTERVAL = 2.0  # The game may change a boosted beam back
 SKIPPED_ITEM_RETRY = 2.0  # For pickups the game has hidden itself, or which caused an error
 VENDING_INTERVAL = 5.0
+VENDING_NEW_ITEM_INTERVAL = 0.5  # A new pickup might be an item of the day, so look sooner
 WIDGET_CHECK_INTERVAL = 1.0
-# However long scans turn out to take here, they never take over 2% of the time
-SCAN_TIME_SHARE = 50.0
+# However long scans turn out to take here, they never take over 1% of the time
+SCAN_TIME_SHARE = 100.0
+# Maps can end up with hundreds of pickups lying around. If the same ones are there as last time, and
+# nothing's changed, there's no need to go through them, other than now and then for what ages.
+FULL_PASS_INTERVAL = 1.0
 SLOWEST_SCAN_INTERVAL = 2.0
 SLOW_SCAN_MS = 8.0  # About half a frame at 60 fps
 SLOW_SCAN_LOG_INTERVAL = 60.0
+STATS_LOG_INTERVAL = 300.0
+# The script putting markers on the game's own radar
+HUD_RADAR_KEY = "groundhider_radar"
+HUD_RADAR_SCRIPT = "coui://uiresources/bl4groundhider/hud_radar.js"
+# CSS colours for its markers, a little brighter than the beams, as they're small
+HUD_MARKER_COLORS = {
+    COMMON: "#d8d8e6",
+    UNCOMMON: "#4dff5c",
+    RARE: "#3da5ff",
+    EPIC: "#c04dff",
+    LEGENDARY: "#ff8c1a",
+    PEARLESCENT: "#4dffc4",
+}
+HUD_MARKER_DEFAULT = "#ff2a8a"
+FIRMWARE_FAILURES_TO_LOG = 5
+# Telling what you dropped: your backpack shrinks, and a new pickup shows up close by. The game does
+# flag these (EInventoryItemFlags::DroppedByPlayer), but only on the inventory item, not on a pickup.
+DROP_WINDOW = 3.0
+DROP_LOOKBACK = 2.0  # The pickup might turn up a little before the backpack check notices
+DROP_DISTANCE = 800.0
+BACKPACK_CHECK_INTERVAL = 1.0  # Going through a full backpack can take up to a millisecond
+EMPTY_SLOT = -1
 
 COLLAPSED = 1
 DRAW_ROUNDED_BOX = 4
@@ -284,6 +422,7 @@ ROUND_HALF_HEIGHT = 1
 RADAR_Z_ORDER = 19
 RADAR_SIZE = 160.0
 # The game has its own round radar in the top right, this one has to stay clear of it
+RADAR_GAME = "Radar gry"
 RADAR_LEFT = "Lewy górny róg"
 RADAR_RIGHT = "Prawa strona, pod radarem gry"
 RADAR_TOP_LEFT = 24.0
@@ -326,7 +465,7 @@ character_options = {name: BoolOption(name, False) for name in CHARACTERS}
 
 pickup_options = {
     name: BoolOption(name, False, description=f"Hide {name.lower()} pickups.")
-    for name in (AMMO, HEALTH, MONEY, ERIDIUM, SHIELD_BOOSTER)
+    for name in (AMMO, HEALTH, MONEY, ERIDIUM, SHIELD_BOOSTER, ARMOR_SHARD)
 }
 
 NO_PROTECTION = "Wyłączona"
@@ -365,6 +504,8 @@ filter_mode = SpinnerOption(
     ),
 )
 
+ammo_type_options = {name: BoolOption(name, False) for name in AMMO_MATERIAL_NAMES.values()}
+
 highlight_rarity_options = {
     name: BoolOption(name, name in (LEGENDARY, PEARLESCENT), description=f"Highlight {name} items.")
     for name in RARITY_ORDER
@@ -382,7 +523,7 @@ firmware_options = {key: BoolOption(name, True) for key, name in sorted(FIRMWARE
 highlight_firmware_options = {key: BoolOption(name, True) for key, name in sorted(FIRMWARE_NAMES.items())}
 highlight_pickup_options = {
     name: BoolOption(name, False, description=f"Highlight {name.lower()} pickups.")
-    for name in (AMMO, HEALTH, MONEY, ERIDIUM, SHIELD_BOOSTER)
+    for name in (AMMO, HEALTH, MONEY, ERIDIUM, SHIELD_BOOSTER, ARMOR_SHARD)
 }
 highlight_firmware = BoolOption(
     "Highlight Firmware",
@@ -422,7 +563,8 @@ show_radar = BoolOption(
     True,
     description="Show highlighted items on a small radar in the top right, which turns with you.",
 )
-radar_place = SpinnerOption("Radar Position", RADAR_LEFT, [RADAR_LEFT, RADAR_RIGHT])
+radar_place = SpinnerOption("Radar Markers", RADAR_GAME, [RADAR_GAME, RADAR_LEFT, RADAR_RIGHT])
+show_left_on_radar = BoolOption("Show Gear Left On Radar", True)
 radar_range = SliderOption(
     identifier="Radar Range",
     value=100.0,
@@ -432,6 +574,16 @@ radar_range = SliderOption(
     is_integer=False,
     description="Metres to the edge of the radar. Items further away stay on its edge.",
 )
+
+minimum_level = SliderOption(
+    identifier="Hide Below Level",
+    value=0,
+    min_value=0,
+    max_value=100,
+    step=1,
+)
+block_pickup = BoolOption("Block Picking Up Hidden Items", True)
+show_dropped = BoolOption("Show Dropped Items", True)
 
 scan_interval = SliderOption(
     identifier="Scan Interval Seconds",
@@ -455,7 +607,8 @@ banner_text: str = ""
 banner_label: UObject | None = None
 banner_mode: str = ""
 restart_notice: UObject | None = None
-restart_notice_shown: bool = False
+restart_notice_shown: str | None = None
+restart_notice_label: UObject | None = None
 
 
 @dataclass
@@ -478,8 +631,13 @@ class ItemInfo:
     material: str
     kind: str | None
     has_beam: bool
+    gear_type: str | None
+    manufacturer: str | None
+    character: str | None
     firmware: bool
     firmware_name: str | None  # A key of FIRMWARE_NAMES, None if there's none or it's not known
+    level: int | None
+    ammo_type: str | None
     anointed: bool
     shiny: bool
     read_at: float
@@ -493,10 +651,12 @@ actor_search_failed: bool = False
 scan_times_ms: list[float] = []
 slowest_scan_ms: float = 0.0
 last_slow_log: float = -SLOW_SCAN_LOG_INTERVAL
+last_stats_log: float = time.monotonic()
 boosted_beams: dict[int, BoostedBeam] = {}
 beam_error_logged: bool = False
 highlighted_items: list[tuple[WeakPointer, str | None]] = []
 highlight_pointers: dict[int, WeakPointer] = {}
+visible_gear_pointers: dict[int, WeakPointer] = {}
 radar_items: list[tuple[float, float, str | None]] = []
 last_boost_check: float = 0.0
 last_widget_check: float = -WIDGET_CHECK_INTERVAL
@@ -504,8 +664,24 @@ last_scan_seconds: float = 0.0
 scan_backlog: bool = False
 decided_with: dict[int, int] = {}
 skip_until: dict[int, float] = {}
+blocked_items: set[int] = set()
+dropped_items: set[int] = set()
+recent_items: dict[int, tuple[float, WeakPointer]] = {}
+last_backpack_size: int | None = None
+last_backpack_check: float = -BACKPACK_CHECK_INTERVAL
+drop_window_until: float = 0.0
 scan_error_logged: bool = False
+hud_radar_registered: bool = False
+hud_radar_found: bool | None = None
+serials_read: int = 0
+firmware_read_failures: int = 0
+firmware_read_successes: int = 0
+firmware_problem_logged: bool = False
 last_state: tuple | None = None
+last_keys: set[int] = set()
+last_pass_state: int = -1
+last_full_pass: float = -FULL_PASS_INTERVAL
+last_list_ms: float = 0.0
 state_revision: int = 0
 last_radar: float = 0.0
 radar_widget: WeakPointer = WeakPointer()
@@ -585,11 +761,6 @@ def color_kind(color: tuple[float, ...] | None, key: int) -> str | None:
     return kind
 
 
-def get_beam_kind(beam: UObject, key: int) -> str | None:
-    """Reads what a beam's colour stands for."""
-    return color_kind(read_beam_color(beam), key)
-
-
 def get_material_name(item: UObject) -> str:
     """Gets the name of the pickup's first material, or an empty string if it has none."""
     root = item.RootPrimitiveComponent
@@ -663,6 +834,50 @@ def read_memory(address: int, size: int) -> bytes | None:
     return buffer.raw if done.value == size else None
 
 
+def read_pointer(address: int) -> int | None:
+    """Reads a pointer, which it doesn't return if it's null."""
+    raw = read_memory(address, 8)
+    return (int.from_bytes(raw, "little") or None) if raw is not None else None
+
+
+def read_serial_index(definition: int) -> int | None:
+    """Reads a definition's index in its table."""
+    raw = read_memory(definition + DEFINITION_SERIAL_INDEX, 2)
+    return None if raw is None else int.from_bytes(raw, "little", signed=True)
+
+
+def read_item_identity(item: UObject) -> SerialInfo:
+    """Works out a pickup's type and firmware from its parts. Anything unreadable is just not known."""
+    identity = item_key(item) + PICKUP_IDENTITY
+
+    item_type = None
+    composition = read_pointer(identity + IDENTITY_COMPOSITION)
+    owner = read_pointer(composition + DEFINITION_OWNER) if composition else None
+    if owner:
+        item_type = read_serial_index(owner)
+
+    head = read_memory(identity + IDENTITY_PARTS, 12)
+    if head is None:
+        return SerialInfo(item_type)
+    array = int.from_bytes(head[:8], "little")
+    count = int.from_bytes(head[8:], "little")
+    if not 0 < count <= MAX_PARTS:
+        return SerialInfo(item_type)
+    raw = read_memory(array, count * 8)
+    if raw is None:
+        return SerialInfo(item_type)
+
+    for start in range(0, len(raw), 8):
+        definition = int.from_bytes(raw[start : start + 8], "little")
+        table_owner = read_pointer(definition + DEFINITION_OWNER) if definition else None
+        table = FIRMWARE_PARTS.get(read_serial_index(table_owner)) if table_owner else None
+        if table is not None:
+            firmware = table.get(read_serial_index(definition))
+            if firmware is not None:
+                return SerialInfo(item_type, firmware)
+    return SerialInfo(item_type)
+
+
 def read_item_serial(item: UObject) -> str | None:
     """Reads a pickup's serial. There's no reflected way to get to it, it's only in native memory."""
     identity = item_key(item) + PICKUP_IDENTITY
@@ -729,55 +944,112 @@ class SerialBits:
         return head + self.take(1) if self.left() else None
 
 
-def serial_firmware(serial: str) -> str | None:
-    """Finds which firmware a serial has, as a key of FIRMWARE_NAMES. None if it has none we know."""
+class SerialInfo(NamedTuple):
+    """What a serial says. Anything could be None."""
+
+    item_type: int | None = None
+    firmware: str | None = None  # A key of FIRMWARE_NAMES
+    level: int | None = None
+
+
+def parse_serial(serial: str) -> SerialInfo:
+    """Reads a serial, which starts `type, 0, 1, level|`. Raises a ValueError if it ends early."""
     reader = SerialBits(serial)
     if reader.take(7) != SERIAL_MAGIC:
-        return None
+        return SerialInfo()
+
+    header: list[int] = []
+    in_header = True
+
+    def found(firmware: str | None = None) -> SerialInfo:
+        level = header[3] if len(header) >= 4 and header[1:3] == [0, 1] else None
+        return SerialInfo(header[0] if header else None, firmware, level)
 
     while (kind := reader.token()) is not None:
         if kind == "100":
-            reader.varint()
+            number = reader.varint()
+            if in_header:
+                header.append(number)
         elif kind == "110":
-            reader.number(reader.number(5))
+            number = reader.number(reader.number(5))
+            if in_header:
+                header.append(number)
+        elif kind == "00":
+            in_header = False
         elif kind == "111":
             reader.take(7 * reader.varint())
         elif kind == "101":
+            in_header = False
             table = FIRMWARE_PARTS.get(reader.varint())
             values = []
             if reader.take(1) == "1":
                 values.append(reader.varint())
                 if reader.take(3) != "000":
-                    return None
+                    return found()
             else:
                 flag = reader.take(2)
                 if flag == "01":
                     if reader.token() != "01":
-                        return None
+                        return found()
                     while (item := reader.token()) != "00":
                         if item == "100":
                             values.append(reader.varint())
                         elif item == "110":
                             values.append(reader.number(reader.number(5)))
                         else:
-                            return None
+                            return found()
                 elif flag != "10":
-                    return None
+                    return found()
             for value in values if table is not None else ():
                 if value in table:
-                    return table[value]
-        elif kind not in ("00", "01"):
-            return None
-    return None
+                    return found(table[value])
+        elif kind != "01":
+            return found()
+    return found()
 
 
-def read_item_firmware(item: UObject) -> str | None:
-    """Works out which firmware a pickup has. Any problem just means it's not known."""
+def read_serial_info(item: UObject, has_firmware: bool) -> SerialInfo:
+    """Reads what a pickup's serial says. Any problem just means it's not known."""
+    global firmware_read_failures, firmware_read_successes, firmware_problem_logged, serials_read  # noqa: PLW0603
+
+    parsed = SerialInfo()
     try:
         serial = read_item_serial(item)
-        return serial_firmware(serial) if serial else None
+        if serial:
+            parsed = parse_serial(serial)
+            serials_read += 1
     except Exception:  # noqa: BLE001
-        return None
+        pass
+    # The parts are what's reliable on the ground, the level's only found in the serial
+    try:
+        identity = read_item_identity(item)
+        parsed = SerialInfo(
+            identity.item_type if identity.item_type is not None else parsed.item_type,
+            identity.firmware if identity.firmware is not None else parsed.firmware,
+            parsed.level,
+        )
+    except Exception:  # noqa: BLE001
+        pass
+
+    if not has_firmware:
+        return parsed._replace(firmware=None)
+
+    if parsed.firmware is not None:
+        firmware_read_successes += 1
+        return parsed
+
+    firmware_read_failures += 1
+    if (
+        not firmware_problem_logged
+        and firmware_read_successes == 0
+        and firmware_read_failures >= FIRMWARE_FAILURES_TO_LOG
+    ):
+        firmware_problem_logged = True
+        warning(
+            "[Ground Item Hider] Can't work out which firmware items have, a game update may have"
+            " moved it. Gear with firmware stays visible.",
+        )
+    return parsed
 
 
 def read_item_info(item: UObject, key: int) -> ItemInfo:
@@ -788,22 +1060,35 @@ def read_item_info(item: UObject, key: int) -> ItemInfo:
     values = read_beam_values(beam) if beam else (b"", {})
     kind = color_kind(beam_color(values), key)
     if kind is None and "/Gear/" not in body:
-        for part in material.split("_"):
-            kind = PICKUP_MATERIAL_NAMES.get(part)
-            if kind is not None:
-                break
+        lowered = material.lower()
+        kind = next((pickup for name, pickup in PICKUP_MATERIAL_NAMES.items() if name in lowered), None)
     firmware = beam_flag(values, BEAM_FIRMWARE_PARAM)
+    is_gear = "/Gear/" in body
+    parsed = read_serial_info(item, firmware) if is_gear else SerialInfo()
+    type_manufacturer, type_gear = ITEM_TYPES.get(parsed.item_type, (None, None))
+    character = CLASS_MOD_TYPES.get(parsed.item_type)
     return ItemInfo(
+        gear_type=(get_gear_type(body) or type_gear or (CLASS_MOD if character else None)) if is_gear else None,
+        manufacturer=(type_manufacturer or get_manufacturer(body, material)) if is_gear else None,
+        character=(character or get_character(body)) if is_gear else None,
         body=body,
         material=material,
         kind=kind,
         has_beam=bool(beam),
         firmware=firmware,
-        firmware_name=read_item_firmware(item) if firmware else None,
+        firmware_name=parsed.firmware,
+        level=parsed.level,
+        ammo_type=get_ammo_type(material) if kind == AMMO else None,
         anointed=beam_flag(values, BEAM_ANOINTED_PARAM),
         shiny=beam_flag(values, BEAM_SHINY_PARAM),
         read_at=time.monotonic(),
     )
+
+
+def get_ammo_type(material: str) -> str | None:
+    """Gets which weapons ammo is for from its material's name."""
+    lowered = material.lower()
+    return next((weapon for name, weapon in AMMO_MATERIAL_NAMES.items() if name in lowered), None)
 
 
 def is_complete(info: ItemInfo) -> bool:
@@ -818,18 +1103,15 @@ def matches_gear_filters(
     characters: dict[str, BoolOption],
 ) -> bool:
     """Checks if a piece of gear's type, manufacturer or character is selected in the given filters."""
-    gear_type = get_gear_type(info.body)
-    if gear_type is None:
+    if info.gear_type is None:
         return False
-    if gear_types[gear_type].value:
+    if gear_types[info.gear_type].value:
         return True
 
     # Class mods have a manufacturer in their material, but it doesn't mean anything to a player
-    if gear_type == CLASS_MOD:
-        character = get_character(info.body)
-        return character is not None and characters[character].value
-    manufacturer = get_manufacturer(info.body, info.material)
-    return manufacturer is not None and manufacturers[manufacturer].value
+    if info.gear_type == CLASS_MOD:
+        return info.character is not None and characters[info.character].value
+    return info.manufacturer is not None and manufacturers[info.manufacturer].value
 
 
 def firmware_selected(info: ItemInfo, selected: dict[str, BoolOption]) -> bool:
@@ -857,10 +1139,14 @@ def should_hide(info: ItemInfo) -> bool:
             return True
         if is_protected(info.kind):
             return False
+        if info.level is not None and info.level < minimum_level.value:
+            return True
         return matches_gear_filters(info, gear_type_options, manufacturer_options, character_options)
 
     if info.body and "/Pickups/" not in info.body:
         return False
+    if info.ammo_type is not None and ammo_type_options[info.ammo_type].value:
+        return True
     return info.kind in pickup_options and pickup_options[info.kind].value
 
 
@@ -895,6 +1181,69 @@ def set_item_hidden(item: UObject, hidden: bool) -> None:
     item.SetActorHiddenInGame(hidden)
     if item.AttractEffectComponent:
         item.AttractEffectComponent.SetHiddenInGame(hidden, True)
+
+
+def set_item_blocked(item: UObject, blocked: bool) -> None:
+    """
+    Stops or allows a pickup being picked up. Aiming at one, and walking into one, both need its
+    collision. Without any it'd fall through the floor, so it's held in place until it's back.
+    """
+    root = item.RootPrimitiveComponent
+    if blocked:
+        root.SetSimulatePhysics(False)  # noqa: FBT003
+        item.SetActorEnableCollision(False)  # noqa: FBT003
+    else:
+        item.SetActorEnableCollision(True)  # noqa: FBT003
+        root.SetSimulatePhysics(True)  # noqa: FBT003
+
+
+def get_backpack_size(pc: UObject) -> int | None:
+    """
+    Gets how many items are in the backpack, if that can be read right now. The array has empty
+    slots in it, so its length doesn't say.
+    """
+    try:
+        return sum(
+            1 for slot in pc.PlayerState.BackpackItems.items if int(slot.InventoryItem.Handle.Handle) != EMPTY_SLOT
+        )
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def is_near_player(item: UObject, pc: UObject) -> bool:
+    """Checks if a pickup is close enough to the player to have been dropped by them."""
+    pawn = pc.Pawn
+    if not pawn:
+        return False
+    player, location = pawn.K2_GetActorLocation(), item.K2_GetActorLocation()
+    return math.dist((player.X, player.Y, player.Z), (location.X, location.Y, location.Z)) <= DROP_DISTANCE
+
+
+def mark_dropped(key: int, item: UObject, pc: UObject) -> None:
+    """Remembers a pickup as dropped by the player, if it's close to them."""
+    if is_near_player(item, pc):
+        dropped_items.add(key)
+        decided_with.pop(key, None)
+
+
+def watch_for_drops(pc: UObject, now: float) -> None:
+    """Notices the backpack shrinking, and looks at what's turned up just before that."""
+    global last_backpack_size, last_backpack_check, drop_window_until  # noqa: PLW0603
+
+    if now - last_backpack_check < BACKPACK_CHECK_INTERVAL:
+        return
+    last_backpack_check = now
+
+    size = get_backpack_size(pc) if pc else None
+    shrank = size is not None and last_backpack_size is not None and size < last_backpack_size
+    if size is not None:
+        last_backpack_size = size
+    if shrank:
+        drop_window_until = now + DROP_WINDOW
+        for key, (seen, pointer) in recent_items.items():
+            item = pointer()
+            if item is not None and now - seen <= DROP_LOOKBACK:
+                mark_dropped(key, item, pc)
 
 
 def boost_beam(beam: UObject, key: int, kind: str | None) -> None:
@@ -991,12 +1340,12 @@ def get_actors(pc: UObject, class_name: str) -> list[UObject]:
     return list(find_all(class_name, False))
 
 
-def get_vending_machine_items(pc: UObject) -> set[int]:
+def get_vending_machine_items(pc: UObject, new_items: bool = False) -> set[int]:
     """Items of the day are pickups too, but they should never be touched. These rarely change."""
     global vending_items, last_vending  # noqa: PLW0603
 
     now = time.monotonic()
-    if now - last_vending < VENDING_INTERVAL:
+    if now - last_vending < (VENDING_NEW_ITEM_INTERVAL if new_items else VENDING_INTERVAL):
         return vending_items
     last_vending = now
 
@@ -1095,7 +1444,17 @@ def handle_item(
     if info is None:
         return reads_left
 
-    hide = not paused and filter_mode.value == MODE_HIDE and should_hide(info)
+    hide = (
+        not paused
+        and filter_mode.value == MODE_HIDE
+        and should_hide(info)
+        and not (show_dropped.value and key in dropped_items)
+    )
+    block = hide and block_pickup.value
+    if block != (key in blocked_items):
+        set_item_blocked(item, block)
+        (blocked_items.add if block else blocked_items.discard)(key)
+
     if hide and key not in hidden_by_us:
         set_item_hidden(item, True)
         hidden_by_us.add(key)
@@ -1115,9 +1474,29 @@ def handle_item(
         if key in boosted_beams:
             restore_beam(item.AttractEffectComponent, key)
 
+    if not hide and "/Gear/" in info.body and key not in dropped_items:
+        if key not in visible_gear_pointers:
+            visible_gear_pointers[key] = WeakPointer(item)
+    else:
+        visible_gear_pointers.pop(key, None)
+
     if is_complete(info):
         decided_with[key] = state
     return reads_left
+
+
+def release_item(item: UObject, key: int) -> None:
+    """Undoes whatever we've done to a pickup."""
+    if key in blocked_items:
+        set_item_blocked(item, False)
+        blocked_items.discard(key)
+    if key in hidden_by_us:
+        set_item_hidden(item, False)
+        hidden_by_us.discard(key)
+    if key in boosted_beams:
+        restore_beam(item.AttractEffectComponent, key)
+    highlight_pointers.pop(key, None)
+    visible_gear_pointers.pop(key, None)
 
 
 def refresh_radar_items() -> None:
@@ -1134,7 +1513,8 @@ def refresh_radar_items() -> None:
 
 def apply_filter() -> None:
     """Brings every pickup in the world in line with the current settings."""
-    global highlighted_items, last_boost_check, scan_backlog  # noqa: PLW0603
+    global highlighted_items, last_boost_check, scan_backlog, last_keys, last_full_pass  # noqa: PLW0603
+    global last_list_ms, last_pass_state  # noqa: PLW0603
 
     pc = get_pc()
     state = get_state_revision()
@@ -1142,10 +1522,33 @@ def apply_filter() -> None:
     check_boosts = bool(boosted_beams) and now - last_boost_check >= BOOST_CHECK_INTERVAL
     if check_boosts:
         last_boost_check = now
+    # Only hiding needs this, and it's the most expensive thing an idle scan does
+    if show_dropped.value and filter_mode.value == MODE_HIDE and not paused:
+        watch_for_drops(pc, now)
+
+    list_start = time.perf_counter()
+    pickups = get_actors(pc, "InventoryPickup")
+    keys = {item._get_address() for item in pickups}  # noqa: SLF001
+    last_list_ms = (time.perf_counter() - list_start) * 1000.0
+
+    # The usual case: the same pickups as last time, all dealt with, and nothing's changed
+    if (
+        keys == last_keys
+        and not scan_backlog
+        and not check_boosts
+        and now - last_full_pass < FULL_PASS_INTERVAL
+        and state == last_pass_state
+        and now >= drop_window_until
+        and not recent_items
+    ):
+        refresh_radar_items()
+        return
+    last_keys = keys
+    last_full_pass = now
+    last_pass_state = state
     scan_backlog = False
 
-    vending = get_vending_machine_items(pc)
-    pickups = get_actors(pc, "InventoryPickup")
+    vending = get_vending_machine_items(pc, not keys <= item_infos.keys())
     # Starts after getting the list, or a slow list could leave no time to ever read a pickup
     deadline = time.perf_counter() + SCAN_TIME_LIMIT
     reads_left = MAX_READS_PER_SCAN
@@ -1154,8 +1557,15 @@ def apply_filter() -> None:
         try:
             key = item_key(item)
             if key in vending:
+                # It might have been seen before the machine was, in which case undo everything
+                release_item(item, key)
                 continue
             alive.add(key)
+
+            if show_dropped.value and key not in item_infos and key not in recent_items:
+                recent_items[key] = (now, WeakPointer(item))
+                if now < drop_window_until:
+                    mark_dropped(key, item, pc)
 
             if key in skip_until:
                 if now < skip_until[key]:
@@ -1180,15 +1590,34 @@ def apply_filter() -> None:
 
     # Forget about anything which was picked up or unloaded
     hidden_by_us.intersection_update(alive)
-    for known in (boosted_beams, item_infos, decided_with, highlight_pointers, skip_until):
+    for known in (boosted_beams, item_infos, decided_with, highlight_pointers, visible_gear_pointers, skip_until):
         for key in known.keys() - alive:
             del known[key]
+    blocked_items.intersection_update(alive)
+    dropped_items.intersection_update(alive)
+    for key in [key for key, (seen, _) in recent_items.items() if now - seen > DROP_LOOKBACK or key not in alive]:
+        del recent_items[key]
 
+    # Highlighting marks what you picked. When hiding, it's whatever's left to go and find.
+    marked = {}
+    if not paused and filter_mode.value == MODE_HIGHLIGHT:
+        marked = highlight_pointers
+    elif not paused and show_left_on_radar.value:
+        marked = visible_gear_pointers
     highlighted_items = [
         (pointer, item_infos[key].kind if key in item_infos else None)
-        for key, pointer in highlight_pointers.items()
+        for key, pointer in marked.items()
     ]
     refresh_radar_items()
+
+
+def count_gear_left() -> int:
+    """Counts the gear lying around which you can still see, leaving out what you dropped yourself."""
+    return sum(
+        1
+        for key, info in item_infos.items()
+        if "/Gear/" in info.body and key not in hidden_by_us and key not in dropped_items
+    )
 
 
 def time_until_next_scan() -> float:
@@ -1198,9 +1627,20 @@ def time_until_next_scan() -> float:
     return max(scan_interval.value, min(SLOWEST_SCAN_INTERVAL, last_scan_seconds * SCAN_TIME_SHARE))
 
 
+def stats_text() -> str:
+    """Sums up how things are going, for the log."""
+    average = sum(scan_times_ms) / len(scan_times_ms) if scan_times_ms else 0.0
+    return (
+        f"scans: average {average:.2f} ms, slowest {slowest_scan_ms:.2f} ms, last list {last_list_ms:.2f} ms,"
+        f" slow search: {actor_search_failed}, items known: {len(item_infos)},"
+        f" hidden: {len(hidden_by_us)}, blocked: {len(blocked_items)}, dropped: {len(dropped_items)},"
+        f" firmware read {firmware_read_successes} ok, {firmware_read_failures} failed, serials read: {serials_read}"
+    )
+
+
 def timed_scan() -> None:
     """Scans, and notes how long it took, so a slow one shows up in the log."""
-    global slowest_scan_ms, last_slow_log, last_scan_seconds, scan_error_logged  # noqa: PLW0603
+    global slowest_scan_ms, last_slow_log, last_scan_seconds, scan_error_logged, last_stats_log  # noqa: PLW0603
 
     start = time.perf_counter()
     try:
@@ -1220,6 +1660,9 @@ def timed_scan() -> None:
     if taken >= SLOW_SCAN_MS and now - last_slow_log >= SLOW_SCAN_LOG_INTERVAL:
         last_slow_log = now
         info(f"[Ground Item Hider] Slow scan: {taken:.1f} ms, {len(item_infos)} items known")
+    if now - last_stats_log >= STATS_LOG_INTERVAL:
+        last_stats_log = now
+        info(f"[Ground Item Hider] {stats_text()}")
 
 
 def new_widget(path: str, outer: UObject) -> UObject:
@@ -1234,11 +1677,16 @@ def linear_color(rgba: tuple[float, float, float, float]) -> WrappedStruct:
 
 def wanted_banner_text() -> str:
     """Gets what the warning should currently say."""
+    left = count_gear_left()
     if filter_mode.value == MODE_HIGHLIGHT:
         count = len(highlight_pointers)
-        return f"{BANNER_TEXT_HIGHLIGHT}: {count}" if count else BANNER_TEXT_HIGHLIGHT
+        if not count and not left:
+            return BANNER_TEXT_HIGHLIGHT
+        return f"{BANNER_TEXT_HIGHLIGHT}: {count}, do zebrania {left}"
     count = len(hidden_by_us)
-    return f"{BANNER_TEXT}: ukryte {count}" if count else BANNER_TEXT
+    if not count and not left:
+        return BANNER_TEXT
+    return f"{BANNER_TEXT}: ukryte {count}, do zebrania {left}"
 
 
 def set_game_font(text: UObject, size: int = BANNER_FONT_SIZE) -> None:
@@ -1252,23 +1700,24 @@ def set_game_font(text: UObject, size: int = BANNER_FONT_SIZE) -> None:
         text.SetFont(font_info)
 
 
-def menu_needs_restart() -> bool:
+def wanted_menu_notice() -> str | None:
     """
-    Checks if BL4 Mod Menu has just set up its page in the game's own menus. Paks only load at
-    startup, so until the game's restarted, F7 can only open its basic panel.
+    Gets what to tell the player about BL4 Mod Menu, if anything. It lives in the game's own menus,
+    which needs a restart after it first sets that up, as paks only load at startup. Until then, or
+    if something's stopping it, F7 can only open its basic panel.
     """
     link = sys.modules.get("bl4_mod_menu.uilink")
     status = getattr(link, "status", None)
     if status is None:
-        return False
+        return None
     try:
-        return status().get("state") == "next_start"
+        return MENU_NOTICES.get(status().get("state"))
     except Exception:  # noqa: BLE001
-        return False
+        return None
 
 
-def add_restart_notice(tree: UObject, canvas: UObject) -> UObject:
-    """Adds the box saying the game needs restarting, under the warning. Starts off hidden."""
+def add_restart_notice(tree: UObject, canvas: UObject) -> tuple[UObject, UObject]:
+    """Adds the box for what to say about the mod menu, under the warning. Starts off hidden."""
     box = new_widget("/Script/UMG.Border", tree)
     box.SetBrushColor(linear_color(BANNER_BACKGROUND))
     box.SetPadding(make_struct("Margin", Left=12.0, Top=6.0, Right=12.0, Bottom=7.0))
@@ -1288,13 +1737,13 @@ def add_restart_notice(tree: UObject, canvas: UObject) -> UObject:
     text.SetVisibility(HIT_TEST_INVISIBLE)
     box.SetContent(text)
     box.SetVisibility(COLLAPSED)
-    return box
+    return box, text
 
 
 def build_banner(pc: UObject) -> None:
     """Adds the warning to the top right of the screen. It never takes the mouse or any input."""
     global banner_widget, banner_owner, banner_text, banner_label, banner_mode  # noqa: PLW0603
-    global restart_notice, restart_notice_shown  # noqa: PLW0603
+    global restart_notice, restart_notice_shown, restart_notice_label  # noqa: PLW0603
 
     # A fresh name each time, reusing one from a removed widget which hasn't been collected yet
     # would make Unreal recycle that object in place. The viewport keeps the widget alive.
@@ -1305,8 +1754,8 @@ def build_banner(pc: UObject) -> None:
     canvas = new_widget("/Script/UMG.CanvasPanel", tree)
     tree.RootWidget = canvas
 
-    restart_notice = add_restart_notice(tree, canvas)
-    restart_notice_shown = False
+    restart_notice, restart_notice_label = add_restart_notice(tree, canvas)
+    restart_notice_shown = None
 
     box = new_widget("/Script/UMG.Border", tree)
     box.SetBrushColor(linear_color(BANNER_BACKGROUND))
@@ -1361,6 +1810,85 @@ def remove_banner() -> None:
         widget.RemoveFromParent()
 
 
+def hud_radar_state() -> dict[str, list]:
+    """Says where the markers on the game's radar go. Runs when the HUD page asks."""
+    pc = get_pc()
+    pawn = pc.Pawn if pc else None
+    if not pawn or not show_radar.value or radar_place.value != RADAR_GAME or not radar_items:
+        return {"m": []}
+
+    player = pawn.K2_GetActorLocation()
+    offsets = [(x - player.X, y - player.Y, kind) for x, y, kind in radar_items]
+    offsets.sort(key=lambda offset: math.hypot(offset[0], offset[1]))
+
+    yaw = float(pc.GetControlRotation().Yaw)
+    range_units = radar_range.value * 100.0
+    markers = []
+    for offset_x, offset_y, kind in offsets[:RADAR_MAX_MARKERS]:
+        x, y = radar_fraction(offset_x, offset_y, yaw, range_units)
+        markers.append([round(x, 3), round(y, 3), HUD_MARKER_COLORS.get(kind, HUD_MARKER_DEFAULT)])
+    return {"m": markers}
+
+
+def on_hud_radar_report(action: dict[str, Any]) -> None:
+    """Hears from the HUD page if it found the game's radar."""
+    global hud_radar_found  # noqa: PLW0603
+
+    hud_radar_found = bool(action.get("found"))
+    info(f"[Ground Item Hider] Game's radar {'found' if hud_radar_found else 'not found'} on the HUD")
+
+
+def get_menu_link() -> Any:
+    """Gets the link BL4 Mod Menu runs into the game's pages, if it's there."""
+    return sys.modules.get("bl4_mod_menu.uilink")
+
+
+def game_radar_usable() -> bool:
+    """Checks if markers can go on the game's own radar right now."""
+    link = get_menu_link()
+    if link is None or hud_radar_found is False:
+        return False
+    try:
+        return link.status().get("state") == "live"
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def register_hud_radar() -> None:
+    """Asks the link to run our script in the HUD page, once it's around."""
+    global hud_radar_registered  # noqa: PLW0603
+
+    link = get_menu_link()
+    if hud_radar_registered or link is None:
+        return
+    hud_radar_registered = True
+    try:
+        link.register(HUD_RADAR_KEY, HUD_RADAR_SCRIPT, hud_radar_state, on_hud_radar_report, views=(link.HUD,), mod="Ground Item Hider")
+    except Exception as ex:  # noqa: BLE001
+        warning(f"[Ground Item Hider] Couldn't use the game's radar: {ex}")
+
+
+def unregister_hud_radar() -> None:
+    """Takes our script out of the HUD page again."""
+    global hud_radar_registered, hud_radar_found  # noqa: PLW0603
+
+    link = get_menu_link()
+    if hud_radar_registered and link is not None:
+        try:
+            link.unregister(HUD_RADAR_KEY)
+        except Exception as ex:  # noqa: BLE001
+            warning(f"[Ground Item Hider] Couldn't stop using the game's radar: {ex}")
+    hud_radar_registered = False
+    hud_radar_found = None
+
+
+def refresh_hud_radar() -> None:
+    """Keeps the game's radar turning with you, the link otherwise only refreshes a few times a second."""
+    link = get_menu_link()
+    if link is not None and hud_radar_registered and radar_items:
+        link.changed(HUD_RADAR_KEY)
+
+
 def update_banner(pc: UObject) -> None:
     """Shows the warning while the filter is active. Changing map throws it away, so re-adds it."""
     global banner_error_logged, banner_text, restart_notice_shown  # noqa: PLW0603
@@ -1385,10 +1913,12 @@ def update_banner(pc: UObject) -> None:
             banner_text = wanted
             banner_label.SetText(wanted)
 
-        needs_restart = menu_needs_restart()
-        if needs_restart != restart_notice_shown:
-            restart_notice_shown = needs_restart
-            restart_notice.SetVisibility(HIT_TEST_INVISIBLE if needs_restart else COLLAPSED)
+        notice = wanted_menu_notice()
+        if notice != restart_notice_shown:
+            restart_notice_shown = notice
+            if notice is not None:
+                restart_notice_label.SetText(notice)
+            restart_notice.SetVisibility(HIT_TEST_INVISIBLE if notice is not None else COLLAPSED)
     except Exception as ex:  # noqa: BLE001
         if not banner_error_logged:
             banner_error_logged = True
@@ -1517,24 +2047,34 @@ def remove_radar() -> None:
         widget.RemoveFromParent()
 
 
+def radar_fraction(
+    offset_x: float,
+    offset_y: float,
+    yaw: float,
+    range_units: float,
+) -> tuple[float, float]:
+    """Finds where a world offset goes on a radar, -1 to 1. Forward is up, far away stays on the rim."""
+    radians = math.radians(yaw)
+    forward = offset_x * math.cos(radians) + offset_y * math.sin(radians)
+    right = -offset_x * math.sin(radians) + offset_y * math.cos(radians)
+
+    x, y = right / range_units, -forward / range_units
+    distance = math.hypot(x, y)
+    if distance > 1.0:
+        x, y = x / distance, y / distance
+    return x, y
+
+
 def radar_position(
     offset_x: float,
     offset_y: float,
     yaw: float,
     range_units: float,
 ) -> tuple[float, float]:
-    """Finds where a world offset goes on the radar. Forward is up, far away stays on the rim."""
-    radians = math.radians(yaw)
-    forward = offset_x * math.cos(radians) + offset_y * math.sin(radians)
-    right = -offset_x * math.sin(radians) + offset_y * math.cos(radians)
-
+    """Finds where a world offset goes on our own radar, in its units."""
     edge = RADAR_SIZE / 2 - RADAR_MARKER_SIZE / 2
-    scale = edge / range_units
-    x, y = right * scale, -forward * scale
-    distance = math.hypot(x, y)
-    if distance > edge:
-        x, y = x * edge / distance, y * edge / distance
-    return x, y
+    x, y = radar_fraction(offset_x, offset_y, yaw, range_units)
+    return x * edge, y * edge
 
 
 def update_radar_markers(pc: UObject) -> None:
@@ -1582,7 +2122,8 @@ def log_radar_error(ex: Exception) -> None:
 def update_radar(pc: UObject) -> None:
     """Shows the radar in highlight mode. Changing map throws it away, so re-adds it."""
     try:
-        if paused or filter_mode.value != MODE_HIGHLIGHT or not show_radar.value:
+        on_game_radar = radar_place.value == RADAR_GAME and game_radar_usable()
+        if paused or filter_mode.value != MODE_HIGHLIGHT or not show_radar.value or on_game_radar:
             remove_radar()
             return
         widget = radar_widget()
@@ -1607,8 +2148,10 @@ def on_tick(_obj: UObject, _args: WrappedStruct, _ret: Any, _func: BoundFunction
     now = time.monotonic()
     if now - last_scan < time_until_next_scan():
         # Items don't turn up this often, but you can turn around much faster
-        if radar_widget() is not None and now - last_radar >= RADAR_INTERVAL:
+        if now - last_radar >= RADAR_INTERVAL:
             last_radar = now
+            refresh_hud_radar()
+        if radar_widget() is not None and last_radar == now:
             pc = get_pc()
             if pc:
                 try:
@@ -1627,6 +2170,7 @@ def on_tick(_obj: UObject, _args: WrappedStruct, _ret: Any, _func: BoundFunction
         last_widget_check = now
         update_banner(pc)
         update_radar(pc)
+        register_hud_radar()
 
 
 @keybind(
@@ -1670,23 +2214,20 @@ def switch_filter_mode() -> None:
 )
 def print_loot_info() -> None:
     items = get_ground_items(get_pc())
-    average = sum(scan_times_ms) / len(scan_times_ms) if scan_times_ms else 0.0
-    info(
-        f"[Ground Item Hider] {len(items)} items, {len(hidden_by_us)} hidden, scans: average"
-        f" {average:.2f} ms, slowest {slowest_scan_ms:.2f} ms, slow search: {actor_search_failed}",
-    )
+    info(f"[Ground Item Hider] {len(items)} items on the ground, {stats_text()}")
     for item in items:
         key = item_key(item)
         loot = read_item_info(item, key)
         beam = item.AttractEffectComponent
         info(
             f"  kind={loot.kind}"
-            f" type={get_gear_type(loot.body)}"
-            f" character={get_character(loot.body)}"
+            f" type={loot.gear_type}"
+            f" character={loot.character}"
             f" firmware={loot.firmware_name if loot.firmware_name else loot.firmware}"
-            f" manufacturer={get_manufacturer(loot.body, loot.material)}"
+            f" manufacturer={loot.manufacturer} level={loot.level} ammo={loot.ammo_type}"
             f" hide={should_hide(loot)}"
             f" highlight={should_highlight(loot)}"
+            f" blocked={key in blocked_items} dropped={key in dropped_items}"
             f" beam_color={read_beam_color(beam) if beam else None}"
             f" body={loot.body} material={loot.material}",
         )
@@ -1705,6 +2246,40 @@ def on_disable() -> None:
         remove_radar()
     except Exception as ex:  # noqa: BLE001
         warning(f"[Ground Item Hider] Couldn't remove the on screen warning: {ex}")
+    unregister_hud_radar()
+
+
+def set_all(options: dict[str, BoolOption], value: bool) -> None:
+    """Sets a whole group of options at once."""
+    for option in options.values():
+        option.value = value
+    mod.save_settings()
+
+
+def reset_to_defaults() -> None:
+    """Puts every filter back how it comes. Radar and scan settings are about looks, so they stay."""
+    for option in filter_options:
+        option.value = option.default_value
+    mod.save_settings()
+
+
+def with_select_buttons(options: dict[str, BoolOption]) -> list[BaseOption]:
+    """Puts buttons for setting a whole group first in its menu, which is handy on the long ones."""
+    return [
+        ButtonOption(
+            "Select All",
+            display_name="Zaznacz wszystkie",
+            description="Zaznacza wszystko na tej liście.",
+            on_press=lambda _: set_all(options, True),
+        ),
+        ButtonOption(
+            "Select None",
+            display_name="Odznacz wszystkie",
+            description="Odznacza wszystko na tej liście.",
+            on_press=lambda _: set_all(options, False),
+        ),
+        *options.values(),
+    ]
 
 
 def label(option: BaseOption, name: str, description: str) -> None:
@@ -1733,6 +2308,8 @@ for key, option in firmware_options.items():
     label(option, FIRMWARE_NAMES[key], f"Zawsze pokazuj sprzęt z firmware {FIRMWARE_NAMES[key]}.")
 for key, option in highlight_firmware_options.items():
     label(option, FIRMWARE_NAMES[key], f"Podświetlaj sprzęt z firmware {FIRMWARE_NAMES[key]}.")
+for key, option in ammo_type_options.items():
+    label(option, GEAR_TYPE_LABELS[key], f"Ukrywaj amunicję: {GEAR_TYPE_LABELS[key].lower()}.")
 for key, option in pickup_options.items():
     label(option, PICKUP_LABELS[key], f"Ukrywaj na ziemi: {PICKUP_LABELS[key].lower()}.")
 for key, option in highlight_pickup_options.items():
@@ -1744,16 +2321,32 @@ label(
     "Ukrywanie: wybrane itemy znikają z ziemi. Podświetlanie: wypada wszystko, a itemy wybrane w"
     " filtrach podświetlania dostają mocny beam i znacznik na radarze.",
 )
-label(keep_firmware, "Zawsze pokazuj firmware", "Nigdy nie ukrywaj sprzętu z firmware.")
+label(
+    minimum_level,
+    "Ukrywaj poniżej poziomu",
+    "Ukrywa sprzęt o niższym poziomie, z poszanowaniem ochrony rzadkości i wyjątków. 0 wyłącza.",
+)
+label(
+    block_pickup,
+    "Blokuj podnoszenie ukrytych",
+    "Ukrytych itemów nie da się wycelować ani zebrać. Wyłącz, jeśli coś przez to nie działa.",
+)
+label(
+    show_dropped,
+    "Pokazuj wyrzucone itemy",
+    "Itemy, które sam wyrzucisz z plecaka, zostają widoczne, nawet jeśli pasują do filtrów.",
+)
+label(keep_firmware, "Zawsze pokazuj firmware", "Nie ukrywaj sprzętu z firmware zaznaczonym na liście poniżej.")
 label(keep_anointed, "Zawsze pokazuj namaszczone", "Nigdy nie ukrywaj sprzętu z anointmentem.")
 label(keep_shiny, "Zawsze pokazuj błyszczące", "Nigdy nie ukrywaj sprzętu shiny.")
-label(highlight_firmware, "Podświetlaj firmware", "Podświetlaj cały sprzęt z firmware.")
+label(highlight_firmware, "Podświetlaj firmware", "Podświetlaj sprzęt z firmware zaznaczonym na liście poniżej.")
 label(highlight_anointed, "Podświetlaj namaszczone", "Podświetlaj cały sprzęt z anointmentem.")
 label(highlight_shiny, "Podświetlaj błyszczące", "Podświetlaj cały sprzęt shiny.")
 label(beam_intensity, "Jasność beamu", "Ile razy jaśniejszy od zwykłego ma być beam.")
 label(beam_size, "Rozmiar beamu", "Ile razy większy od zwykłego ma być beam.")
-label(show_radar, "Pokazuj radar", "Mały radar w prawym górnym rogu, obracający się razem z Tobą.")
-label(radar_place, "Pozycja radaru", "Gdzie na ekranie pokazywać radar podświetlonych itemów.")
+label(show_radar, "Pokazuj znaczniki na radarze", "Znaczniki itemów, obracające się razem z Tobą.")
+label(radar_place, "Gdzie pokazywać znaczniki", "Na radarze gry albo na osobnym, małym radarze na ekranie.")
+label(show_left_on_radar, "Pokazuj niezebrany sprzęt", "W trybie ukrywania radar gry pokazuje sprzęt, który jeszcze leży.")
 label(radar_range, "Zasięg radaru", "Ile metrów do krawędzi radaru. Dalsze itemy zostają na krawędzi.")
 label(scan_interval, "Częstość skanowania", "Sekundy między szukaniem nowego lootu. Filtr sam zwalnia, gdy gra tego potrzebuje.")
 
@@ -1766,6 +2359,10 @@ filter_options = [
     *character_options.values(),
     *pickup_options.values(),
     *firmware_options.values(),
+    *ammo_type_options.values(),
+    minimum_level,
+    block_pickup,
+    show_dropped,
     protected_rarity,
     keep_firmware,
     keep_anointed,
@@ -1795,19 +2392,19 @@ mod = build_mod(
         ),
         NestedOption(
             "Hide By Manufacturer",
-            children=list(manufacturer_options.values()),
+            children=with_select_buttons(manufacturer_options),
             display_name="Ukrywaj: firmy",
             description="Sprzęt których firm ukrywać na ziemi.",
         ),
         NestedOption(
             "Hide By Item Type",
-            children=list(gear_type_options.values()),
+            children=with_select_buttons(gear_type_options),
             display_name="Ukrywaj: typy itemów",
             description="Które typy sprzętu ukrywać na ziemi.",
         ),
         NestedOption(
             "Hide Class Mods By Character",
-            children=list(character_options.values()),
+            children=with_select_buttons(character_options),
             display_name="Ukrywaj: mody klasowe postaci",
             description="Mody klasowe których postaci ukrywać na ziemi.",
         ),
@@ -1817,11 +2414,20 @@ mod = build_mod(
             display_name="Ukrywaj: amunicja, zdrowie i inne",
             description="Które przedmioty użytkowe ukrywać na ziemi.",
         ),
+        NestedOption(
+            "Hide Ammo By Weapon",
+            children=with_select_buttons(ammo_type_options),
+            display_name="Ukrywaj: amunicja według broni",
+            description="Amunicję do których broni ukrywać na ziemi.",
+        ),
+        minimum_level,
+        block_pickup,
+        show_dropped,
         protected_rarity,
         keep_firmware,
         NestedOption(
             "Keep Which Firmware",
-            children=list(firmware_options.values()),
+            children=with_select_buttons(firmware_options),
             display_name="Który firmware zawsze pokazywać",
             description=(
                 "Sprzęt z odznaczonym firmware nie ma już wyjątku i podlega zwykłym filtrom."
@@ -1841,19 +2447,19 @@ mod = build_mod(
                 ),
                 NestedOption(
                     "Highlight By Manufacturer",
-                    children=list(highlight_manufacturer_options.values()),
+                    children=with_select_buttons(highlight_manufacturer_options),
                     display_name="Firmy",
                     description="Sprzęt których firm podświetlać.",
                 ),
                 NestedOption(
                     "Highlight By Item Type",
-                    children=list(highlight_gear_type_options.values()),
+                    children=with_select_buttons(highlight_gear_type_options),
                     display_name="Typy itemów",
                     description="Które typy sprzętu podświetlać.",
                 ),
                 NestedOption(
                     "Highlight Class Mods By Character",
-                    children=list(highlight_character_options.values()),
+                    children=with_select_buttons(highlight_character_options),
                     display_name="Mody klasowe postaci",
                     description="Mody klasowe których postaci podświetlać.",
                 ),
@@ -1866,7 +2472,7 @@ mod = build_mod(
                 highlight_firmware,
                 NestedOption(
                     "Highlight Which Firmware",
-                    children=list(highlight_firmware_options.values()),
+                    children=with_select_buttons(highlight_firmware_options),
                     display_name="Który firmware podświetlać",
                     description="Działa, gdy włączone jest Podświetlaj firmware.",
                 ),
@@ -1875,6 +2481,7 @@ mod = build_mod(
                 beam_intensity,
                 beam_size,
                 show_radar,
+                show_left_on_radar,
                 radar_place,
                 radar_range,
             ],
@@ -1882,6 +2489,12 @@ mod = build_mod(
             description="Co podświetlać w trybie podświetlania, i jak mocno.",
         ),
         scan_interval,
+        ButtonOption(
+            "Reset Filters",
+            display_name="Przywróć domyślne filtry",
+            description="Ustawia wszystkie filtry jak po instalacji. Pozycja radaru i częstość skanowania zostają.",
+            on_press=lambda _: reset_to_defaults(),
+        ),
     ],
 )
 

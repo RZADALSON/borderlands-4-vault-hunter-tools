@@ -2,16 +2,19 @@
 
 Filtr lootu do Borderlands 4 z instalatorem MSI. Wskazujesz folder gry, a resztę instalator robi sam.
 
-> **Status:** filtr działa w grze autora, a instalacja, aktualizacja, naprawa i odinstalowanie przeszły test na
-> fałszywym folderze gry. Przed instalacją zamknij grę. Jeśli masz już starszą wersję, instalator ją podmieni i
-> zostawi Twoje ustawienia.
+> **Status:** część wersji 1.4.0 nie była jeszcze sprawdzona w grze: znaczniki na radarze gry, odczyt firmware z części,
+> blokada podnoszenia, wykrywanie wyrzuconych itemów, filtr poziomu i aktualizacja przez ten instalator. Przed instalacją
+> zamknij grę. Starsza wersja zostanie podmieniona, a Twoje ustawienia zostaną.
 
 ## Co potrafi
 
 - **Ukrywanie:** wybrane itemy znikają z ziemi. Nic nie jest usuwane ani przenoszone, więc po wyłączeniu
   filtra wracają. Filtrować można po rzadkości, firmie, typie i postaci (mody klasowe), a także ukrywać amunicję,
   zdrowie i inne pickupy.
-- **Podświetlanie:** wypada wszystko, a wybrane itemy dostają mocniejszy beam i znacznik na małym radarze.
+  Ukrytych itemów nie da się też podnieść, a to, co sam wyrzucisz z plecaka, zostaje widoczne (obie opcje można wyłączyć).
+- **Radar gry:** znaczniki w kolorach rzadkości na radarze samej gry. Przy ukrywaniu pokazują sprzęt, który jeszcze leży.
+- **Podświetlanie:** wypada wszystko, a wybrane itemy dostają mocniejszy beam i znacznik na radarze.
+- **Poziom i amunicja:** ukrywanie sprzętu poniżej wybranego poziomu oraz amunicji do wybranych broni.
 - **Wybór firmware:** decydujesz, który z 24 zestawów jest zawsze pokazywany lub podświetlany.
 - **Napis `FILTR AKTYWNY`** w prawym górnym rogu, gdy filtr działa. Pokazuje też liczbę ukrytych itemów.
 - **Ustawienia w grze:** F7 otwiera menu po polsku. F8 chwilowo wstrzymuje filtr.
@@ -35,6 +38,23 @@ Redistributable, jeśli go brakuje. Save'y nie są zmieniane, a pliki gry nie s�
 
 BL4 Mod Menu przy starcie gry pyta GitHuba o nowe wersje modów, ale niczego nie pobiera bez kliknięcia.
 Można to wyłączyć w jego opcjach.
+
+## Najczęstsze pytania
+
+**Po instalacji F7 pokazuje prosty panel albo prośbę o restart.** To normalne przy pierwszym uruchomieniu: gra wczytuje
+pliki menu tylko przy starcie. Uruchom ją ponownie.
+
+**Czy można podnieść ukryty item?** Domyślnie nie, bo traci kolizję. Opcja `Blokuj podnoszenie ukrytych` to zmienia.
+
+**Wyrzuciłem item i zniknął.** Wyrzucone z plecaka powinny zostać widoczne (`Pokazuj wyrzucone itemy`). Rozpoznawane są po
+ubytku w plecaku i pojawieniu się itemu w pobliżu, więc to, co odkładasz z wyposażenia, może nie zostać rozpoznane. F8
+pokazuje wszystko.
+
+**Czemu widzę item, który powinien być ukryty?** Najczęściej przez wyjątek: firmware, anointment, shiny albo ochronę
+rzadkości. Wyłączysz je w opcjach.
+
+**Gra dostała patch i coś nie działa.** Log jest w `OakGame\Binaries\Win64\Plugins\unrealsdk.log`. Po patchu SDK może
+wymagać nowej wersji. W razie problemów ze startem gry usuń `OakGame\Binaries\Win64\dsound.dll` lub odinstaluj mod.
 
 ## Odinstalowanie
 

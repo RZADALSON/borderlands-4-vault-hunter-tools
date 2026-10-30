@@ -17,6 +17,9 @@
     <Property Id="REINSTALLMODE" Value="amus" />
 
     <Property Id="ARPNOMODIFY" Value="1" />
+    <Property Id="ARPURLINFOABOUT" Value="https://github.com/RZADALSON/bl4-ground-item-hider" />
+    <Property Id="ARPPRODUCTICON" Value="ProductIcon" />
+    <Icon Id="ProductIcon" SourceFile="$(IconFile)" />
     <Property Id="VCREDIST_MINOR" Value="$(VcRedistMinor)" />
     <Property Id="INSTALLFOLDER" Secure="yes" />
     <Property Id="WIXUI_EXITDIALOGOPTIONALTEXT" Value="!(loc.ExitNote)" />
@@ -97,7 +100,8 @@
     <!-- What the mod menu makes while the game runs. It's no use, or even harmful, without the SDK. -->
     <Component Id="CleanUpMenuPak" Directory="ModPaksFolder" Guid="A30C6B18-7E42-4C95-B1D8-5F2E90A7C346" Bitness="always64">
       <RegistryValue Root="HKLM" Key="Software\GroundItemHider" Name="CleanUpMenuPak" Type="integer" Value="1" KeyPath="yes" />
-      <RemoveFile Id="RemoveMenuPak" Name="BL4Fix_UILink_*_P.pak" On="uninstall" />
+      <!-- Also the .next and .remove files it leaves for after the game closes -->
+      <RemoveFile Id="RemoveMenuPak" Name="BL4Fix_UILink_*" On="uninstall" />
       <RemoveFolder Id="RemoveModPaksFolder" On="uninstall" />
     </Component>
     <Component Id="CleanUpMenuLink" Directory="MenuLinkFolder" Guid="C74D1A25-2F86-49B3-8E06-71BD3C5F9A02" Bitness="always64">
@@ -118,6 +122,7 @@
       <RegistryValue Root="HKLM" Key="Software\GroundItemHider" Name="CleanUpPythonCache" Type="integer" Value="1" KeyPath="yes" />
       <RemoveFile Id="RemovePythonCacheFiles" Name="*" On="uninstall" />
       <RemoveFolder Id="RemovePythonCacheFolder" On="uninstall" />
+      <RemoveFolder Id="RemoveKeybindsFolder" Directory="KeybindsFolder" On="uninstall" />
     </Component>
 
     <WixVariable Id="WixUIBannerBmp" Value="$(BannerBmp)" />

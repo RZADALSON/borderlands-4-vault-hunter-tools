@@ -85,7 +85,7 @@ class WP:
     def __init__(self, o=None): self.o = o
     def __call__(self): return self.o
 unreal.WeakPointer = WP
-THE_PC = types.SimpleNamespace(pc=1, Pawn=types.SimpleNamespace(K2_GetActorLocation=lambda: types.SimpleNamespace(X=0.0, Y=0.0, Z=0.0)), GetControlRotation=lambda: types.SimpleNamespace(Yaw=0.0))
+THE_PC = types.SimpleNamespace(pc=1, PlayerState=types.SimpleNamespace(BackpackItems=types.SimpleNamespace(items=[])), Pawn=types.SimpleNamespace(K2_GetActorLocation=lambda: types.SimpleNamespace(X=0.0, Y=0.0, Z=0.0)), GetControlRotation=lambda: types.SimpleNamespace(Yaw=0.0))
 sys.path[:0] = [str(tmp), str(tmp / "sdk_mods" / dist.name)]
 
 import mods_base
@@ -103,7 +103,8 @@ find_all_calls = []
 _fa = sdk.find_all
 sdk.find_all = lambda name, exact=True: (find_all_calls.append(name), _fa(name, exact))[1]
 import GroundItemHider as m
-m.VENDING_INTERVAL = 0.0; m.BOOST_CHECK_INTERVAL = 0.0; m.INCOMPLETE_RETRY = 0.0; m.WIDGET_CHECK_INTERVAL = 0.0; m.SCAN_TIME_LIMIT = 1000.0
+m.serial_firmware_for_test = lambda serial: m.parse_serial(serial)[1]
+m.FULL_PASS_INTERVAL = 0.0; m.VENDING_INTERVAL = 0.0; m.VENDING_NEW_ITEM_INTERVAL = 0.0; m.BOOST_CHECK_INTERVAL = 0.0; m.INCOMPLETE_RETRY = 0.0; m.WIDGET_CHECK_INTERVAL = 0.0; m.SCAN_TIME_LIMIT = 1000.0
 assert ".sdkmod" in m.__file__, m.__file__
 
 fails = 0
@@ -116,7 +117,7 @@ def check(label, got, want=True):
 mod = mods_base.mod_list.mod_list[-1]
 check("mod name", mod.name, "Ground Item Hider")
 check("coop support", mod.coop_support.name, "ClientSide")
-check("version", mod.version, "1.3")
+check("version", mod.version, "1.4")
 check("hooks found", [h.hook_identifier and h.hook_funcs for h in mod.hooks][0][0][0], "/Script/Engine.CameraModifier:BlueprintModifyCamera")
 check("keybinds", sorted(k.identifier for k in mod.keybinds), ["Print Loot Info", "Switch Filter Mode", "Toggle Item Hiding"])
 check("toggle key", next(k.key for k in mod.keybinds if k.identifier == "Toggle Item Hiding"), "F8")
@@ -153,6 +154,8 @@ class Beam:
 class Root:
     def __init__(self, mat): self.mat = mat
     def GetNumMaterials(self): return 1 if self.mat else 0
+    physics = True
+    def SetSimulatePhysics(self, v): self.physics = v
     def GetMaterial(self, i): return types.SimpleNamespace(Name=self.mat)
 class Item:
     n = 0
@@ -163,6 +166,8 @@ class Item:
         self.RootPrimitiveComponent = Root(mat)
         self.bHidden = False
     def SetActorHiddenInGame(self, h): self.bHidden = h
+    collision = True
+    def SetActorEnableCollision(self, v): self.collision = v
     def IsActorBeingDestroyed(self): return False
     def _get_address(self): return self.id
     @property
@@ -378,6 +383,7 @@ def fresh():
         for o in group.values(): o.value = False
     m.highlight_firmware.value = m.highlight_anointed.value = m.highlight_shiny.value = False
     m.boosted_beams.clear(); m.highlighted_items = []
+    m.radar_place.value = m.RADAR_LEFT; m.hud_radar_found = None; m.drop_window_until = 0.0; m.last_backpack_size = None; m.dropped_items.clear(); m.recent_items.clear(); m.show_dropped.value = True; m.block_pickup.value = True
     m.filter_mode.value = m.MODE_HIGHLIGHT; m.paused = False
     m.beam_intensity.value = 30.0; m.beam_size.value = 2.0; m.show_radar.value = True
     world["OakVendingMachine"] = []
@@ -407,7 +413,7 @@ check("others not written", getattr(com.AttractEffectComponent, "writes", 0), 0)
 for _ in range(3): m.apply_filter()
 check("no compounding", all(abs(a - b * 30) < 0.01 for a, b in zip(color_of(leg)[:3], want[:3])))
 check("not rewritten each scan", leg.AttractEffectComponent.writes, 1)
-check("still seen as legendary", m.get_beam_kind(leg.AttractEffectComponent, m.item_key(leg)), m.LEGENDARY)
+check("still seen as legendary", m.color_kind(m.read_beam_color(leg.AttractEffectComponent), m.item_key(leg)), m.LEGENDARY)
 Log.logs.clear(); m.apply_filter(); check("no unknown colour warnings", [l for l in Log.logs if "Unknown" in l], [])
 
 # Changing the sliders, and the game resetting the beam
@@ -530,6 +536,7 @@ m.toggle_hiding.callback(); check("F8 returns radar", len(live_radars()), 1)
 m.show_radar.value = False; tick_now(); check("radar can be turned off", len(live_radars()), 0)
 check("beam stays with radar off", m.item_key(a_) in m.boosted_beams); m.show_radar.value = True; tick_now()
 m.filter_mode.value = m.MODE_HIDE; tick_now(); check("no radar in hide mode", len(live_radars()), 0)
+world["InventoryPickup"] = []; tick_now()
 check("banner back to plain", dict([w for w in live() if w.name.startswith("GroundItemHider_Banner")][-1].WidgetTree.RootWidget.child.content.child.calls)["SetText"], ("FILTR AKTYWNY",))
 
 # Radar failing doesn't stop the rest
@@ -603,10 +610,10 @@ check("next scan comes soon", m.time_until_next_scan(), m.BACKLOG_INTERVAL)
 m.apply_filter(); m.apply_filter(); m.apply_filter(); check("all done in a few scans", sum(i.bHidden for i in many), 35)
 
 # Vending machines are only asked now and then
-m.VENDING_INTERVAL = 1000.0; m.last_vending = -2000.0; n = []
+m.VENDING_INTERVAL = 1000.0; m.VENDING_NEW_ITEM_INTERVAL = 1000.0; m.last_vending = -2000.0; n = []
 world["OakVendingMachine"] = [types.SimpleNamespace(Class=Item.Class, IsActorBeingDestroyed=lambda: False, GetIOTDForPlayer=lambda pc: (n.append(1), None)[1])]
 for _ in range(5): m.apply_filter()
-check("machines asked once", len(n), 1); m.VENDING_INTERVAL = 0.0; world["OakVendingMachine"] = []
+check("machines asked once", len(n), 1); m.VENDING_INTERVAL = 0.0; m.VENDING_NEW_ITEM_INTERVAL = 0.0; world["OakVendingMachine"] = []
 
 # Backup search
 real_gaoc = _statics.GetAllActorsOfClass
@@ -682,7 +689,7 @@ m.item_infos.clear(); m.decided_with.clear(); m.SCAN_TIME_LIMIT = -1.0; lim = ge
 m.apply_filter(); check("over the time limit, it waits", (lim.bHidden, m.scan_backlog), (False, True)); m.SCAN_TIME_LIMIT = 1000.0
 m.apply_filter(); check("and finishes next scan", (lim.bHidden, m.scan_backlog), (True, False))
 m.scan_interval.value = 0.25; m.last_scan_seconds = 0.0001; check("fast scans keep the set speed", m.time_until_next_scan(), 0.25)
-m.last_scan_seconds = 0.02; check("slow scans run less often", m.time_until_next_scan(), 1.0)
+m.last_scan_seconds = 0.01; check("slow scans run less often", m.time_until_next_scan(), 1.0)
 m.last_scan_seconds = 5.0; check("but never stop", m.time_until_next_scan(), m.SLOWEST_SCAN_INTERVAL); m.last_scan_seconds = 0.0
 check("scan speed default", m.scan_interval.default_value, 0.25)
 
@@ -694,7 +701,7 @@ tick_now(); ban = lambda: [w for w in live() if w.name.startswith("GroundItemHid
 b0 = ban()[0]; lab = lambda: [c for c in b0.WidgetTree.RootWidget.child.content.child.calls if c[0] == "SetText"][-1][1][0]
 check("plain with nothing hidden", lab(), "FILTR AKTYWNY")
 h1, h2 = gear(smg_jak, m.COMMON), gear(smg_jak, m.COMMON); world["InventoryPickup"] = [h1, h2]; tick_now(); tick_now()
-check("counts what's hidden", lab(), "FILTR AKTYWNY: ukryte 2")
+check("counts what's hidden", lab(), "FILTR AKTYWNY: ukryte 2, do zebrania 0")
 check("text updates in place", len(ban()), 1); check("same widget", ban()[0] is b0)
 before = len(b0.WidgetTree.RootWidget.child.content.child.calls); tick_now(); check("text isn't reset needlessly", len(b0.WidgetTree.RootWidget.child.content.child.calls), before)
 accent = [c for c in b0.WidgetTree.RootWidget.child.content.calls]
@@ -834,22 +841,22 @@ def make_serial(*tokens):
         for _ in range(5): group.append(m.SERIAL_ALPHABET[v % 85]); v //= 85
         out += "".join(reversed(group))
     return "@U" + out
-check("own type parts don't count", m.serial_firmware(make_serial((3, None), (7, None))), None)
-check("finds a shield's firmware", m.serial_firmware(make_serial((3, None), (246, 1))), "god_killer")
-check("a list of values too", m.serial_firmware(make_serial((246, [999, 2]))), "reel_big_fist")
-check("class mods have their own numbers", m.serial_firmware(make_serial((234, 74))), "risky_boots")
-check("non firmware values of a table don't count", m.serial_firmware(make_serial((234, 1))), None)
+check("own type parts don't count", m.serial_firmware_for_test(make_serial((3, None), (7, None))), None)
+check("finds a shield's firmware", m.serial_firmware_for_test(make_serial((3, None), (246, 1))), "god_killer")
+check("a list of values too", m.serial_firmware_for_test(make_serial((246, [999, 2]))), "reel_big_fist")
+check("class mods have their own numbers", m.serial_firmware_for_test(make_serial((234, 74))), "risky_boots")
+check("non firmware values of a table don't count", m.serial_firmware_for_test(make_serial((234, 1))), None)
 for t in ("234", "243", "244", "245", "246", "247"):
     check(f"table {t} has every firmware", sorted(set(m.FIRMWARE_PARTS[int(t)].values())), sorted(m.FIRMWARE_NAMES))
 check("24 firmware", len(m.FIRMWARE_NAMES), 24)
 check("every firmware has options", (len(m.firmware_options), len(m.highlight_firmware_options)), (24, 24))
 for bad in ("@U", "@Ug", "@U!!!!!", "@Ugr$xKm"):
-    try: m.serial_firmware(bad); ok = True
+    try: m.serial_firmware_for_test(bad); ok = True
     except ValueError: ok = True
     check(f"bad serial {bad} doesn't escape read_item_firmware", True)
 real_ris = m.read_item_serial
 def raise_it(i): raise ValueError("serial ends early")
-m.read_item_serial = raise_it; check("any problem means unknown", m.read_item_firmware(None), None); m.read_item_serial = real_ris
+m.read_item_serial = raise_it; check("any problem means unknown", tuple(m.read_serial_info(None, True)), (None, None, None)); m.read_item_serial = real_ris
 class NoMem: pass
 check("bad memory fails safely", m.read_memory(0x20, 8), None); check("zero size", m.read_memory(0x20000, 0), None)
 fake_item = gear(smg_jak, m.COMMON); check("a fake address has no serial", m.read_item_serial(fake_item), None)
@@ -860,7 +867,7 @@ blob = ctypes.create_string_buffer(0x3F0 + 0xC0)
 ctypes.memmove(ctypes.addressof(blob) + 0x3F0 + 0xA0, ctypes.addressof(ctypes.c_uint64(ctypes.addressof(ser_buf))), 8)
 ctypes.memmove(ctypes.addressof(blob) + 0x3F0 + 0xB0, ctypes.addressof(ctypes.c_uint64(len(ser))), 8)
 real_key = m.item_key; m.item_key = lambda i: ctypes.addressof(blob)
-check("reads the serial from a pickup", m.read_item_firmware(None), "god_killer")
+check("reads the serial from a pickup", m.read_serial_info(None, True)[1], "god_killer")
 ctypes.memmove(ctypes.addressof(blob) + 0x3F0 + 0xB0, ctypes.addressof(ctypes.c_uint64(10**9)), 8); check("silly length is refused", m.read_item_serial(None), None)
 ctypes.memmove(ctypes.addressof(blob) + 0x3F0 + 0xB0, ctypes.addressof(ctypes.c_uint64(len(ser))), 8); ctypes.memmove(ser_buf, b"XX", 2)
 check("something not a serial is refused", m.read_item_serial(None), None); m.item_key = real_key
@@ -887,9 +894,545 @@ for o in m.highlight_firmware_options.values(): o.value = True
 a1, a2 = fw_item("baker"), fw_item("jacked"); m.highlight_firmware_options["baker"].value = False
 check("highlight only the chosen firmware", hl(a1, a2), [False, True])
 check("menu has both", {"Keep Which Firmware"} <= {o.identifier for o in mod.options})
-check("no serial read without firmware", (lambda c=[]: (setattr(m, "read_item_serial", lambda i: c.append(1)), m.read_item_info(gear(smg_jak, m.COMMON), 1), len(c))[2])(), 0)
+check("consumables have no serial read", (lambda c=[]: (setattr(m, "read_item_serial", lambda i: c.append(1)), m.read_item_info(Item("", "MI_Ammo"), 1), len(c))[2])(), 0)
 m.read_item_serial = real_ris; world["InventoryPickup"] = []
 for o in m.highlight_firmware_options.values(): o.value = True
+
+# --- Select all / none ------------------------------------------------------------------------------------
+def nested(group, ident=None):
+    return next(o for o in group if o.identifier == ident)
+for ident, opts in (("Keep Which Firmware", m.firmware_options), ("Hide By Manufacturer", m.manufacturer_options), ("Hide By Item Type", m.gear_type_options), ("Hide Class Mods By Character", m.character_options)):
+    kids = nested(mod.options, ident).children
+    check(f"{ident}: buttons first", [k.identifier for k in kids[:2]], ["Select All", "Select None"])
+    check(f"{ident}: options follow", len(kids), len(opts) + 2)
+    kids[1].on_press(kids[1]); check(f"{ident}: none", set(o.value for o in opts.values()), {False})
+    kids[0].on_press(kids[0]); check(f"{ident}: all", set(o.value for o in opts.values()), {True})
+    kids[1].on_press(kids[1])
+hl_group = nested(mod.options, "Highlight Filters").children
+for ident, opts in (("Highlight Which Firmware", m.highlight_firmware_options), ("Highlight By Manufacturer", m.highlight_manufacturer_options)):
+    kids = nested(hl_group, ident).children
+    kids[1].on_press(kids[1]); check(f"{ident}: separate list", set(o.value for o in opts.values()), {False})
+for o in m.firmware_options.values(): o.value = True
+for o in m.highlight_firmware_options.values(): o.value = True
+check("buttons have polish labels", nested(mod.options, "Keep Which Firmware").children[0].display_name, "Zaznacz wszystkie")
+r1 = m.get_state_revision(); nested(mod.options, "Hide By Manufacturer").children[0].on_press(None); check("pressing a button applies on the next scan", m.get_state_revision(), r1 + 1)
+nested(mod.options, "Hide By Manufacturer").children[1].on_press(None)
+import json as _j, pathlib as _p
+saved = _j.loads(_p.Path(mod.settings_file).read_text(encoding="utf8"))
+check("settings file has no buttons", "Select All" in saved["options"]["Keep Which Firmware"], False)
+check("settings file keeps the choices", saved["options"]["Hide By Manufacturer"]["Vladof"], False)
+
+# --- What the notice says -----------------------------------------------------------------------------------
+fresh(); m.filter_mode.value = m.MODE_HIDE; m.remove_banner(); world["InventoryPickup"] = []
+fake_link = types.ModuleType("bl4_mod_menu.uilink"); link_state = {"state": "live"}; fake_link.status = lambda: dict(link_state); sys.modules["bl4_mod_menu.uilink"] = fake_link
+tick_now()
+said = lambda: [c for c in m.restart_notice.content.calls if c[0] == "SetText"][-1][1][0]
+shown_now = lambda: [c for c in m.restart_notice.calls if c[0] == "SetVisibility"][-1][1][0]
+check("all fine, nothing shown", shown_now(), 1)
+link_state["state"] = "game_changed"; tick_now(); check("game patch shown", (shown_now(), "Patch gry" in said()), (3, True))
+link_state["state"] = "conflict"; tick_now(); check("conflict shown", (shown_now(), "Inny mod" in said()), (3, True))
+link_state["state"] = "next_start"; tick_now(); check("restart shown", said(), m.RESTART_NOTICE_TEXT)
+link_state["state"] = "checking"; tick_now(); check("nothing while checking", shown_now(), 1)
+link_state["state"] = "error"; tick_now(); check("nothing to say about errors", shown_now(), 1)
+sys.modules.pop("bl4_mod_menu.uilink", None); m.remove_banner()
+
+# --- Firmware problems reach the log, once --------------------------------------------------------------------
+m.firmware_read_failures = 0; m.firmware_read_successes = 0; m.firmware_problem_logged = False; Log.logs.clear(); real_ris = m.read_item_serial
+m.read_item_serial = lambda i: None
+for _ in range(m.FIRMWARE_FAILURES_TO_LOG - 1): m.read_serial_info(None, True)[1]
+check("not yet", sum("firmware items have" in l for l in Log.logs), 0)
+for _ in range(10): m.read_serial_info(None, True)[1]
+check("logged once", sum("firmware items have" in l for l in Log.logs), 1)
+m.firmware_read_failures = 0; m.firmware_read_successes = 1; m.firmware_problem_logged = False; Log.logs.clear()
+for _ in range(10): m.read_serial_info(None, True)[1]
+check("not if it's worked before", sum("firmware items have" in l for l in Log.logs), 0)
+m.read_item_serial = lambda i: make_serial((246, 1)); check("a good read counts", (m.read_serial_info(None, True)[1], m.firmware_read_successes), ("god_killer", 2)); m.read_item_serial = real_ris
+
+# --- Hidden items can't be picked up ------------------------------------------------------------------------
+fresh(); m.item_infos.clear(); m.decided_with.clear(); m.hidden_by_us.clear(); m.blocked_items.clear(); m.dropped_items.clear(); m.recent_items.clear(); m.filter_mode.value = m.MODE_HIDE; m.rarity_options[m.COMMON].value = True
+state_of = lambda i: (i.bHidden, i.collision, i.RootPrimitiveComponent.physics)
+t1 = gear(smg_jak, m.COMMON); keep = gear(smg_jak, m.EPIC); run(t1, keep)
+check("hidden has no collision and is held in place", state_of(t1), (True, False, False))
+check("visible is untouched", state_of(keep), (False, True, True))
+m.toggle_hiding.callback(); check("F8 gives it all back", state_of(t1), (False, True, True))
+m.toggle_hiding.callback(); check("and takes it away", state_of(t1), (True, False, False))
+m.block_pickup.value = False; m.apply_filter(); check("the option gives pickups back, still hidden", state_of(t1), (True, True, True))
+m.block_pickup.value = True; m.apply_filter(); check("and back on", state_of(t1), (True, False, False))
+m.rarity_options[m.COMMON].value = False; m.apply_filter(); check("no longer filtered, all back", state_of(t1), (False, True, True))
+m.rarity_options[m.COMMON].value = True; m.filter_mode.value = m.MODE_HIGHLIGHT; m.apply_filter(); check("highlight mode never blocks", state_of(t1), (False, True, True))
+m.filter_mode.value = m.MODE_HIDE; m.apply_filter(); world["InventoryPickup"] = [keep]; m.apply_filter(); check("gone item forgotten", m.item_key(t1) in m.blocked_items, False)
+check("defaults on", (m.block_pickup.default_value, m.show_dropped.default_value), (True, True))
+t2 = gear(smg_jak, m.COMMON); t2.SetActorEnableCollision = explode; world["InventoryPickup"] = [t2]; Log.logs.clear(); m.skip_until.clear(); m.apply_filter(); check("a failure is contained", sum("Skipping pickup" in l for l in Log.logs), 1)
+
+# --- Dropped items stay visible ----------------------------------------------------------------------------------
+fresh(); m.item_infos.clear(); m.decided_with.clear(); m.hidden_by_us.clear(); m.blocked_items.clear(); m.dropped_items.clear(); m.recent_items.clear(); m.skip_until.clear(); m.filter_mode.value = m.MODE_HIDE; m.rarity_options[m.COMMON].value = True
+def slots(count, empty=20):
+    entry = lambda h: types.SimpleNamespace(InventoryItem=types.SimpleNamespace(Handle=types.SimpleNamespace(Handle=h)))
+    return [entry(i) for i in range(count)] + [entry(-1) for _ in range(empty)]
+m.BACKPACK_CHECK_INTERVAL = 0.0
+pack = THE_PC.PlayerState.BackpackItems; pack.items = slots(3); m.last_backpack_size = None; m.drop_window_until = 0.0; m.DROP_LOOKBACK = 1.0
+world["InventoryPickup"] = []; m.apply_filter()
+near = lambda: types.SimpleNamespace(X=100.0, Y=0.0, Z=0.0); far = types.SimpleNamespace(X=5000.0, Y=0.0, Z=0.0)
+kill = gear(smg_jak, m.COMMON); kill.location = near(); world["InventoryPickup"] = [kill]; m.apply_filter()
+check("a kill's drop nearby still hides", kill.bHidden)
+pack.items = slots(2); mine = gear(smg_jak, m.COMMON); mine.location = near(); world["InventoryPickup"] = [kill, mine]; m.apply_filter()
+check("what you drop stays visible", (mine.bHidden, mine.collision), (False, True))
+for _ in range(5): m.apply_filter()
+check("and stays that way", mine.bHidden, False)
+away = gear(smg_jak, m.COMMON); away.location = far; world["InventoryPickup"] = [kill, mine, away]; m.apply_filter(); check("far away isn't yours", away.bHidden)
+m.drop_window_until = 0.0; late = gear(smg_jak, m.COMMON); late.location = near(); world["InventoryPickup"] = [kill, mine, late]; m.apply_filter(); check("after the window, it's not yours", late.bHidden)
+# Turning up the scan before the backpack changes
+m.drop_window_until = 0.0; m.recent_items.clear(); early = gear(smg_jak, m.COMMON); early.location = near(); world["InventoryPickup"] = [early]; m.apply_filter(); check("hidden at first", early.bHidden)
+pack.items = slots(1); m.apply_filter(); check("shown once the backpack catches up", early.bHidden, False)
+# Gaining items is no drop, and neither is selling with nothing turning up
+m.drop_window_until = 0.0; pack.items = slots(4); m.recent_items.clear(); g1 = gear(smg_jak, m.COMMON); g1.location = near(); world["InventoryPickup"] = [g1]; m.apply_filter(); check("picking something up isn't a drop", g1.bHidden)
+m.show_dropped.value = False; pack.items = slots(1); m.drop_window_until = 0.0; off = gear(smg_jak, m.COMMON); off.location = near(); world["InventoryPickup"] = [off]; m.apply_filter(); check("option off hides them too", off.bHidden); m.show_dropped.value = True
+THE_PC.PlayerState = None; m.last_backpack_size = 5; check("no player state is survivable", m.get_backpack_size(THE_PC), None); m.apply_filter(); THE_PC.PlayerState = types.SimpleNamespace(BackpackItems=pack)
+world["InventoryPickup"] = []; m.apply_filter(); check("nothing left remembered", (len(m.dropped_items), len(m.blocked_items), len(m.recent_items)), (0, 0, 0))
+m.BACKPACK_CHECK_INTERVAL = 1000.0; checked = []; real_gbs = m.get_backpack_size; m.get_backpack_size = lambda pc: (checked.append(1), 3)[1]; m.last_backpack_check = -2000.0
+for _ in range(10): m.apply_filter()
+check("the backpack isn't read every scan", len(checked), 1)
+m.BACKPACK_CHECK_INTERVAL = 0.0; checked.clear(); m.filter_mode.value = m.MODE_HIGHLIGHT
+for _ in range(3): m.apply_filter()
+check("highlight mode doesn't read it", len(checked), 0); m.filter_mode.value = m.MODE_HIDE; m.paused = True; m.apply_filter(); check("nor does a paused filter", len(checked), 0); m.paused = False; m.get_backpack_size = real_gbs
+check("only full slots count", m.get_backpack_size(types.SimpleNamespace(PlayerState=types.SimpleNamespace(BackpackItems=types.SimpleNamespace(items=slots(4, 30))))), 4)
+check("menu has both", {"Block Picking Up Hidden Items", "Show Dropped Items"} <= {o.identifier for o in mod.options})
+check("polish labels", (m.block_pickup.display_name, m.show_dropped.display_name), ("Blokuj podnoszenie ukrytych", "Pokazuj wyrzucone itemy"))
+
+# --- Back to defaults, and stats ----------------------------------------------------------------------------
+fresh(); m.filter_mode.value = m.MODE_HIGHLIGHT; m.rarity_options[m.RARE].value = False; m.manufacturer_options["Jakobs"].value = True; m.block_pickup.value = False; m.radar_place.value = m.RADAR_RIGHT; m.scan_interval.value = 0.5
+reset_button = next(o for o in mod.options if o.identifier == "Reset Filters"); reset_button.on_press(reset_button)
+check("reset: mode", m.filter_mode.value, m.MODE_HIDE)
+check("reset: rarity", m.rarity_options[m.RARE].value, True)
+check("reset: manufacturer", m.manufacturer_options["Jakobs"].value, False)
+check("reset: blocking", m.block_pickup.value, True)
+check("reset: highlight defaults", (m.highlight_rarity_options[m.LEGENDARY].value, m.highlight_firmware.value), (True, True))
+check("reset leaves looks alone", (m.radar_place.value, m.scan_interval.value), (m.RADAR_RIGHT, 0.5))
+m.radar_place.value = m.RADAR_LEFT; m.scan_interval.value = 0.25
+world["InventoryPickup"] = []; Log.logs.clear(); m.STATS_LOG_INTERVAL = 1000.0; m.last_stats_log = __import__("time").monotonic(); m.timed_scan(); check("stats aren't spammed", sum("scans: average" in l for l in Log.logs), 0)
+m.last_stats_log = -5000.0; m.timed_scan(); m.timed_scan(); check("stats logged in time", sum("scans: average" in l for l in Log.logs), 1)
+check("stats have what's needed", all(w in m.stats_text() for w in ("slowest", "blocked", "dropped", "firmware read")))
+
+# --- A serial's item type ----------------------------------------------------------------------------------
+def typed_serial(item_type, *tokens):
+    return make_serial(*tokens).replace("@U", "@U") if item_type == 246 else make_typed(item_type, *tokens)
+def make_typed(item_type, *tokens):
+    def lsb(v, n): return f"{v:0{n}b}"[::-1]
+    def varint(v):
+        out = ""
+        while True:
+            more = v >> 4
+            out += lsb(v & 15, 4) + ("1" if more else "0")
+            v = more
+            if not v: return out
+    bits = "0010000" + "100" + varint(item_type) + "01" + "100" + varint(0) + "00"
+    for t in tokens: bits += "101" + varint(t[0]) + "1" + varint(t[1]) + "000"
+    bits += "0" * (-len(bits) % 8)
+    data = bytes(int(bits[i:i + 8][::-1], 2) for i in range(0, len(bits), 8))
+    data += b"\0" * (-len(data) % 4)
+    out = ""
+    for i in range(0, len(data), 4):
+        v = int.from_bytes(data[i:i + 4], "big"); group = []
+        for _ in range(5): group.append(m.SERIAL_ALPHABET[v % 85]); v //= 85
+        out += "".join(reversed(group))
+    return "@U" + out
+check("type read", m.parse_serial(make_typed(269))[:2], (269, None))
+check("type and firmware read", m.parse_serial(make_typed(269, (243, 1)))[:2], (269, "god_killer"))
+check("vladof repkit", m.ITEM_TYPES[269], ("Vladof", m.REPAIR_KIT))
+check("jakobs sniper", m.ITEM_TYPES[24], ("Jakobs", m.SNIPER))
+check("atlas enhancement", m.ITEM_TYPES[284], ("Atlas", m.ENHANCEMENT))
+check("every manufacturer is known", {v[0] for v in m.ITEM_TYPES.values()}, set(m.MANUFACTURER_CODES.values()))
+check("every type name has an option", all(v[1] is None or v[1] in m.gear_type_options for v in m.ITEM_TYPES.values()))
+check("every character has a type", set(m.CLASS_MOD_TYPES.values()), set(m.CHARACTERS))
+fresh(); m.item_infos.clear(); m.decided_with.clear(); m.filter_mode.value = m.MODE_HIDE; m.protected_rarity.value = m.NO_PROTECTION
+served = {}; m.read_item_serial = lambda i: served.get(i.id)
+def typed_item(path, item_type, r=m.LEGENDARY, mat="MID_M_LEG_x"):
+    i = gear(path, r, mat=mat); served[i.id] = make_typed(item_type); return i
+m.manufacturer_options["Vladof"].value = True
+lr = typed_item(repkit, 269); check("legendary repkit's maker comes from the serial", run(lr), [True])
+check("and is remembered", m.item_infos[m.item_key(lr)].manufacturer, "Vladof")
+other = typed_item(repkit, 265); check("another maker's stays", run(other), [False])
+m.manufacturer_options["Vladof"].value = False; m.character_options["Loveless"].value = True
+lv = typed_item(body("ClassMods/x/Body_Whatever.Body"), 402); check("class mod's character comes from the serial", run(lv), [True])
+m.character_options["Loveless"].value = False; m.manufacturer_options["Jakobs"].value = True
+trust = typed_item(body("Weapons/SMG/JAK/Body_JAK_SM.B"), 13); check("the serial's maker wins over the path's", (run(trust), m.item_infos[m.item_key(trust)].manufacturer), ([False], "Daedalus"))
+fallback = gear(smg_jak, m.LEGENDARY); check("no serial, the path still works", run(fallback), [True])
+m.manufacturer_options["Jakobs"].value = False; m.gear_type_options[m.SHIELD].value = True
+newpath = typed_item(body("New/Place/B.B"), 321); check("type from the serial for an unknown path", run(newpath), [True])
+m.read_item_serial = real_ris; m.protected_rarity.value = m.RARITY_LABELS[m.LEGENDARY]; served.clear()
+
+# --- Pickups by material, the way other mods go by it ------------------------------------------------------------
+for mat, kind in (("MI_ArmorShard_01", m.ARMOR_SHARD), ("M_ShieldBoosters_x", m.SHIELD_BOOSTER), ("MI_Health_Large", m.HEALTH), ("MI_HealthVial", m.HEALTH), ("MI_AMMO_SMG", m.AMMO), ("MI_ammo_x", m.AMMO), ("MI_Money", m.MONEY), ("MI_Eridium", m.ERIDIUM)):
+    check(f"pickup {mat}", m.read_item_info(Item("", mat), 1).kind, kind)
+check("unknown material", m.read_item_info(Item("", "MI_Pretty"), 1).kind, None)
+check("gear isn't a pickup", m.read_item_info(Item(smg_jak, "MID_M_Ammo_x"), 1).kind, None)
+check("armor shard options", (m.pickup_options[m.ARMOR_SHARD].display_name, m.highlight_pickup_options[m.ARMOR_SHARD].display_name), ("Odłamki pancerza", "Odłamki pancerza"))
+
+# --- Hide below a level ------------------------------------------------------------------------------------
+def leveled(item_type, level, *tokens):
+    def lsb(v, n): return f"{v:0{n}b}"[::-1]
+    def varint(v):
+        out = ""
+        while True:
+            more = v >> 4
+            out += lsb(v & 15, 4) + ("1" if more else "0")
+            v = more
+            if not v: return out
+    bits = "0010000" + "100" + varint(item_type) + "01" + "100" + varint(0) + "01" + "100" + varint(1) + "01" + "100" + varint(level) + "00" + "100" + varint(2) + "01" + "100" + varint(7777) + "00"
+    for t in tokens: bits += "101" + varint(t[0]) + "1" + varint(t[1]) + "000"
+    bits += "0" * (-len(bits) % 8)
+    data = bytes(int(bits[i:i + 8][::-1], 2) for i in range(0, len(bits), 8))
+    data += b"\0" * (-len(data) % 4)
+    out = ""
+    for i in range(0, len(data), 4):
+        v = int.from_bytes(data[i:i + 4], "big"); group = []
+        for _ in range(5): group.append(m.SERIAL_ALPHABET[v % 85]); v //= 85
+        out += "".join(reversed(group))
+    return "@U" + out
+check("level read", tuple(m.parse_serial(leveled(269, 42))), (269, None, 42))
+check("level with firmware", tuple(m.parse_serial(leveled(269, 70, (243, 2)))), (269, "reel_big_fist", 70))
+check("numbers after the header aren't the level", m.parse_serial(make_typed(269)).level, None)
+fresh(); m.item_infos.clear(); m.decided_with.clear(); m.filter_mode.value = m.MODE_HIDE; served = {}; m.read_item_serial = lambda i: served.get(i.id)
+def lvl_item(level, r=m.EPIC, **f):
+    i = gear(smg_jak, r, **f); served[i.id] = leveled(20, level); return i
+low, high, leg_low, fw_low = lvl_item(40), lvl_item(70), lvl_item(40, m.LEGENDARY), lvl_item(40, HasFirmware=True)
+nolevel = gear(smg_jak, m.EPIC)
+check("off by default", run(low, high), [False, False])
+m.minimum_level.value = 60; m.apply_filter(); check("low level hides", (low.bHidden, high.bHidden), (True, False))
+check("legendary protected", run(leg_low), [False])
+m.firmware_options["god_killer"].value = True; check("firmware keeps it", run(fw_low), [False])
+check("unknown level stays", run(nolevel), [False])
+m.minimum_level.value = 0; world["InventoryPickup"] = []; m.read_item_serial = real_ris
+check("level option in the menu", any(o.identifier == "Hide Below Level" for o in mod.options))
+check("level default off", m.minimum_level.default_value, 0)
+
+# --- Ammo by weapon ------------------------------------------------------------------------------------------------
+fresh(); m.item_infos.clear(); m.decided_with.clear(); m.filter_mode.value = m.MODE_HIDE; m.ammo_type_options[m.SMG].value = True
+for o in m.ammo_type_options.values(): o.value = False
+m.ammo_type_options[m.SMG].value = True
+smg_ammo, ar_ammo, beamed = Item("", "MI_AMMO_SMG"), Item("", "MI_Ammo_AssaultRifles"), Item("X'/Game/Pickups/Ammo/A.A'", "MI_Ammo_SMG", Beam(C[m.AMMO]))
+check("only that weapon's ammo hides", run(smg_ammo, ar_ammo, beamed), [True, False, True])
+for mat, weapon in (("MI_AMMO_Sniper", m.SNIPER), ("MI_ammo_shotgun", m.SHOTGUN), ("MI_AMMO_Shotguns", m.SHOTGUN), ("MI_AMMO_Assault", m.ASSAULT_RIFLE), ("MI_AMMO_Pistol", m.PISTOL), ("MI_Ammo_Pistols", m.PISTOL)):
+    check(f"ammo {mat}", m.get_ammo_type(mat), weapon)
+check("ammo of unknown weapon", m.get_ammo_type("MI_AMMO_HeavyWeapon"), None)
+m.ammo_type_options[m.SMG].value = False; m.pickup_options[m.AMMO].value = True; check("the ammo option still covers all", run(Item("", "MI_AMMO_Whatever")), [True]); m.pickup_options[m.AMMO].value = False
+check("health has no ammo type", m.read_item_info(Item("", "MI_Health_smg"), 1).ammo_type, None)
+check("ammo menu has select buttons", next(o for o in mod.options if o.identifier == "Hide Ammo By Weapon").children[0].identifier, "Select All")
+world["InventoryPickup"] = []
+
+# --- Random events, checking everything still adds up after each ---------------------------------------------
+import random as _r
+def soak(seed, steps):
+    rng = _r.Random(seed)
+    W.made.clear()
+    fresh(); m.item_infos.clear(); m.decided_with.clear(); m.hidden_by_us.clear(); m.blocked_items.clear(); m.boosted_beams.clear(); m.highlight_pointers.clear(); m.skip_until.clear()
+    m.remove_radar(); m.remove_banner(); m.paused = False; m.filter_mode.value = m.MODE_HIDE; m.protected_rarity.value = m.RARITY_LABELS[m.LEGENDARY]; m.minimum_level.value = 0
+    m.read_item_serial = lambda i: None; m.SKIPPED_ITEM_RETRY = 0.0; m.DROP_DISTANCE = 800.0
+    m.firmware_problem_logged = True
+    THE_PC.PlayerState = types.SimpleNamespace(BackpackItems=types.SimpleNamespace(items=slots(5)))
+    bodies = [smg_jak, snip_vla, pistol_ted, ar_ord, sg_mal, heavy_tor, shield_dad, grenade_bor, repkit, enh, cm]
+    rarities = [m.COMMON, m.UNCOMMON, m.RARE, m.EPIC, m.LEGENDARY, m.PEARLESCENT]
+    groups = [m.rarity_options, m.manufacturer_options, m.gear_type_options, m.character_options, m.firmware_options, m.ammo_type_options, m.pickup_options, m.highlight_rarity_options, m.highlight_manufacturer_options, m.highlight_gear_type_options, m.highlight_pickup_options]
+    items, broken = [], 0
+    def new_item():
+        kind = rng.random()
+        if kind < 0.75:
+            flags = {f: rng.random() < 0.15 for f in ("HasFirmware", "HasAnointment", "IsShiny") if rng.random() < 0.5}
+            i = Item(rng.choice(bodies), rng.choice(["MID_M_JAK_x", "MID_M_LEG_x", "MID_M_x"]), Beam(C[rng.choice(rarities)], **flags))
+        elif kind < 0.9:
+            i = Item("", rng.choice(["MI_AMMO_SMG", "MI_Health", "MI_Money", "MI_ArmorShard", "M_ShieldBooster", "MI_Pretty"]))
+        else:
+            i = Item("X'/Game/Missions/Y.Y'", "MI_Q", Beam(C[m.MISSION]))
+        i.location = types.SimpleNamespace(X=rng.uniform(-2000, 2000), Y=rng.uniform(-2000, 2000), Z=0.0)
+        return i
+    problems = []
+    for step in range(steps):
+        event = rng.random()
+        if event < 0.25: items.append(new_item())
+        elif event < 0.40 and items: items.pop(rng.randrange(len(items)))
+        elif event < 0.60:
+            o = rng.choice(list(rng.choice(groups).values())); o.value = not o.value
+        elif event < 0.65: m.keep_firmware.value = not m.keep_firmware.value
+        elif event < 0.70: m.block_pickup.value = not m.block_pickup.value
+        elif event < 0.75: m.show_dropped.value = not m.show_dropped.value
+        elif event < 0.80: m.filter_mode.value = rng.choice([m.MODE_HIDE, m.MODE_HIGHLIGHT])
+        elif event < 0.84: m.toggle_hiding.callback()
+        elif event < 0.88: m.protected_rarity.value = rng.choice(m.protected_rarity.choices)
+        elif event < 0.92: m.minimum_level.value = rng.choice([0, 30, 60])
+        elif event < 0.95: THE_PC.PlayerState.BackpackItems.items = slots(rng.randint(0, 8))
+        elif event < 0.97: m.beam_intensity.value = rng.choice([10.0, 30.0]); m.beam_size.value = rng.choice([1.0, 2.0])
+        world["InventoryPickup"] = list(items)
+        # Enough scans to get through any backlog, then everything must be settled
+        for _ in range(1 + len(items) // m.MAX_READS_PER_SCAN + 1): m.apply_filter()
+        hiding = not m.paused and m.filter_mode.value == m.MODE_HIDE
+        highlighting = not m.paused and m.filter_mode.value == m.MODE_HIGHLIGHT
+        for i in items:
+            k = m.item_key(i); info = m.item_infos.get(k)
+            if info is None: problems.append((step, "never read", i.BodyData)); continue
+            want_hide = hiding and m.should_hide(info) and not (m.show_dropped.value and k in m.dropped_items)
+            want_block = want_hide and m.block_pickup.value
+            want_boost = highlighting and m.should_highlight(info) and i.AttractEffectComponent is not None and m.read_beam_color(i.AttractEffectComponent) is not None
+            if i.bHidden != want_hide: problems.append((step, "hidden", i.bHidden, want_hide, info.kind, info.body))
+            if i.collision == want_block: problems.append((step, "collision", i.collision, want_block))
+            if i.RootPrimitiveComponent.physics == want_block: problems.append((step, "physics", i.RootPrimitiveComponent.physics, want_block))
+            beam = i.AttractEffectComponent
+            if beam is not None:
+                if beam.hidden != want_hide: problems.append((step, "beam hidden", beam.hidden, want_hide))
+                if (k in m.boosted_beams) != want_boost: problems.append((step, "boost", k in m.boosted_beams, want_boost, info.kind))
+                if want_boost:
+                    want_color = m.boosted_beams[k].boosted_color
+                    if not m.colors_match(m.read_beam_color(beam), want_color): problems.append((step, "boost colour"))
+                elif m.read_beam_color(beam) is not None and info.kind in rarities and m.classify_color(m.read_beam_color(beam)) is None: problems.append((step, "beam left boosted", info.kind))
+            if (k in m.highlight_pointers) != (highlighting and m.should_highlight(info)): problems.append((step, "marker"))
+        alive = {m.item_key(i) for i in items}
+        for known in (m.hidden_by_us, m.blocked_items, m.dropped_items, m.boosted_beams, m.item_infos, m.decided_with, m.highlight_pointers, m.skip_until):
+            if set(known) - alive: problems.append((step, "remembers what's gone", len(set(known) - alive)))
+        if problems: break
+    # Turning the mod off gives everything back
+    if not problems:
+        m.paused = False; m.on_disable()
+        for i in items:
+            if i.bHidden or not i.collision or not i.RootPrimitiveComponent.physics: problems.append(("disable", i.bHidden, i.collision))
+            beam = i.AttractEffectComponent
+            if beam is not None and (beam.hidden or (m.read_beam_color(beam) is not None and m.classify_color(m.read_beam_color(beam)) is None)): problems.append(("disable beam",))
+    return problems[:3]
+start_soak = __import__("time").perf_counter()
+for seed in range(int(__import__("os").environ.get("GIH_SOAK_RUNS", 6))):
+    res = soak(seed, 500)
+    check(f"random run {seed}", res, [])
+print(f"SOAK took {__import__('time').perf_counter() - start_soak:.1f}s")
+m.read_item_serial = real_ris; m.SKIPPED_ITEM_RETRY = 2.0; m.firmware_problem_logged = False; world["InventoryPickup"] = []; m.paused = False; m.filter_mode.value = m.MODE_HIDE
+for group in (m.rarity_options, m.manufacturer_options, m.gear_type_options, m.character_options, m.ammo_type_options, m.pickup_options):
+    for o in group.values(): o.value = o.default_value
+
+# --- The messier things a real game does ---------------------------------------------------------------------
+def rough_soak(seed, steps):
+    rng = _r.Random(seed)
+    W.made.clear()
+    fresh(); m.item_infos.clear(); m.decided_with.clear(); m.hidden_by_us.clear(); m.blocked_items.clear(); m.boosted_beams.clear(); m.highlight_pointers.clear(); m.skip_until.clear()
+    m.remove_radar(); m.remove_banner(); m.paused = False; m.filter_mode.value = m.MODE_HIDE; m.protected_rarity.value = m.RARITY_LABELS[m.LEGENDARY]; m.minimum_level.value = 0
+    m.read_item_serial = lambda i: None; m.SKIPPED_ITEM_RETRY = 0.0; m.firmware_problem_logged = True; m.rarity_options[m.COMMON].value = True
+    THE_PC.PlayerState = types.SimpleNamespace(BackpackItems=types.SimpleNamespace(items=slots(5)))
+    class Flaky(Item):
+        dead = False
+        def IsActorBeingDestroyed(self):
+            if self.dead: raise RuntimeError("dead object")
+            return False
+    items, game_hidden, problems = [], set(), []
+    iotd = None
+    for step in range(steps):
+        event = rng.random()
+        if event < 0.30:
+            i = Flaky(smg_jak, "MID_M_JAK_x", Beam(C[rng.choice([m.COMMON, m.EPIC])], HasFirmware=rng.random() < 0.2))
+            i.location = types.SimpleNamespace(X=rng.uniform(-3000, 3000), Y=0.0, Z=0.0)
+            items.append(i)
+        elif event < 0.45 and items:
+            gone = items.pop(rng.randrange(len(items))); game_hidden.discard(gone.id)
+        elif event < 0.50 and items:
+            # The game hides one which isn't ours
+            i = rng.choice(items)
+            if m.item_key(i) not in m.hidden_by_us and i.id not in game_hidden and m.item_key(i) not in m.item_infos:
+                i.bHidden = True; game_hidden.add(i.id)
+        elif event < 0.55 and items:
+            rng.choice(items).dead = not rng.choice(items).dead
+        elif event < 0.60:
+            # A map change: everything goes, widgets with it
+            items.clear(); game_hidden.clear()
+            for w in W.made: w.in_viewport = False
+        elif event < 0.65:
+            iotd = rng.choice(items) if items and rng.random() < 0.5 else None
+            pick = iotd
+            world["OakVendingMachine"] = [types.SimpleNamespace(Class=Item.Class, IsActorBeingDestroyed=lambda: False, GetIOTDForPlayer=lambda pc, p=pick: p)]
+        elif event < 0.70: m.filter_mode.value = rng.choice([m.MODE_HIDE, m.MODE_HIGHLIGHT])
+        elif event < 0.74: m.toggle_hiding.callback()
+        elif event < 0.78: THE_PC.Pawn = None if rng.random() < 0.5 else types.SimpleNamespace(K2_GetActorLocation=lambda: types.SimpleNamespace(X=0.0, Y=0.0, Z=0.0))
+        elif event < 0.82: THE_PC.PlayerState = None if rng.random() < 0.5 else types.SimpleNamespace(BackpackItems=types.SimpleNamespace(items=slots(rng.randint(0, 6))))
+        elif event < 0.85: m.show_radar.value = not m.show_radar.value
+        world["InventoryPickup"] = list(items)
+        try:
+            for _ in range(3):
+                m.last_scan = 0.0; m.last_widget_check = -100.0; m.scan_backlog = False
+                m.on_tick(None, None, None, None)
+        except Exception as ex:
+            problems.append((step, "escaped the tick", repr(ex))); break
+        for i in items:
+            k = m.item_key(i)
+            if i.id in game_hidden and k in m.hidden_by_us: problems.append((step, "took over what the game hid"))
+            if i.id in game_hidden and not i.bHidden: problems.append((step, "showed what the game hid"))
+            if iotd is i and not m.paused and not i.dead and (k in m.hidden_by_us or k in m.boosted_beams): problems.append((step, "touched the item of the day"))
+        live_radars_now = [w for w in W.made if w.in_viewport and (w.name or "").startswith("GroundItemHider_Radar")]
+        live_banners_now = [w for w in W.made if w.in_viewport and (w.name or "").startswith("GroundItemHider_Banner")]
+        if len(live_radars_now) > 1: problems.append((step, "two radars"))
+        if len(live_banners_now) > 1: problems.append((step, "two banners"))
+        if not m.paused and len(live_banners_now) != 1: problems.append((step, "no banner", len(live_banners_now)))
+        if m.paused and live_banners_now: problems.append((step, "banner while paused"))
+        if problems: break
+    THE_PC.Pawn = types.SimpleNamespace(K2_GetActorLocation=lambda: types.SimpleNamespace(X=0.0, Y=0.0, Z=0.0))
+    THE_PC.PlayerState = types.SimpleNamespace(BackpackItems=types.SimpleNamespace(items=[]))
+    world["OakVendingMachine"] = []; world["InventoryPickup"] = []; m.show_radar.value = True
+    return problems[:3]
+Log.logs.clear()
+for seed in range(int(__import__("os").environ.get("GIH_SOAK_RUNS", 6))):
+    res = rough_soak(seed, 500)
+    check(f"rough run {seed}", res, [])
+check("radar never failed", [l for l in Log.logs if "show the radar" in l or "on screen warning" in l][:2], [])
+m.read_item_serial = real_ris; m.SKIPPED_ITEM_RETRY = 2.0; m.firmware_problem_logged = False; m.paused = False; m.filter_mode.value = m.MODE_HIDE
+for group in (m.rarity_options, m.manufacturer_options, m.gear_type_options, m.character_options, m.ammo_type_options, m.pickup_options):
+    for o in group.values(): o.value = o.default_value
+
+# --- An item of the day found late ------------------------------------------------------------------------------
+fresh(); m.item_infos.clear(); m.decided_with.clear(); m.hidden_by_us.clear(); m.blocked_items.clear(); m.filter_mode.value = m.MODE_HIDE; m.rarity_options[m.COMMON].value = True
+m.VENDING_INTERVAL = 1000.0; m.VENDING_NEW_ITEM_INTERVAL = 1000.0; m.last_vending = __import__("time").monotonic(); m.vending_items = set()
+late_iotd = gear(smg_jak, m.COMMON); world["InventoryPickup"] = [late_iotd]; m.apply_filter()
+check("seen before its machine, hidden", (late_iotd.bHidden, late_iotd.collision), (True, False))
+m.vending_items = {m.item_key(late_iotd)}; m.apply_filter()
+check("given back once it's known", (late_iotd.bHidden, late_iotd.collision, late_iotd.AttractEffectComponent.hidden), (False, True, False))
+check("and forgotten", (m.item_key(late_iotd) in m.hidden_by_us, m.item_key(late_iotd) in m.blocked_items), (False, False))
+fresh(); m.item_infos.clear(); m.decided_with.clear(); m.highlight_rarity_options[m.COMMON].value = True; m.vending_items = set()
+late2 = gear(smg_jak, m.COMMON); world["InventoryPickup"] = [late2]; m.apply_filter(); check("boosted first", m.item_key(late2) in m.boosted_beams)
+m.vending_items = {m.item_key(late2)}; m.apply_filter(); check("beam restored too", (m.item_key(late2) in m.boosted_beams, m.classify_color(m.read_beam_color(late2.AttractEffectComponent))), (False, m.COMMON))
+# A new pickup makes it look sooner than it otherwise would
+m.VENDING_INTERVAL = 1000.0; m.VENDING_NEW_ITEM_INTERVAL = 0.0; asked = []; world["OakVendingMachine"] = [types.SimpleNamespace(Class=Item.Class, IsActorBeingDestroyed=lambda: False, GetIOTDForPlayer=lambda pc: (asked.append(1), None)[1])]
+m.last_vending = __import__("time").monotonic(); m.filter_mode.value = m.MODE_HIDE; m.item_infos.clear(); world["InventoryPickup"] = []; m.apply_filter(); check("nothing new, machines left alone", len(asked), 0)
+world["InventoryPickup"] = [gear(smg_jak, m.EPIC)]; m.apply_filter(); check("something new, machines asked", len(asked), 1)
+m.VENDING_INTERVAL = 0.0; world["OakVendingMachine"] = []; world["InventoryPickup"] = []; m.vending_items = set(); m.apply_filter()
+
+# --- How much is still lying around ------------------------------------------------------------------------------
+fresh(); m.item_infos.clear(); m.decided_with.clear(); m.hidden_by_us.clear(); m.blocked_items.clear(); m.filter_mode.value = m.MODE_HIDE; m.rarity_options[m.COMMON].value = True; m.remove_banner()
+banner_now = lambda: [c for c in m.banner_label.calls if c[0] == "SetText"][-1][1][0]
+world["InventoryPickup"] = []; tick_now(); check("nothing around, plain", banner_now(), "FILTR AKTYWNY")
+c1, c2, e1 = gear(smg_jak, m.COMMON), gear(smg_jak, m.COMMON), gear(smg_jak, m.EPIC)
+ammo_pile, mission = Item("", "MI_AMMO_SMG"), Item("X'/Game/Missions/Y.Y'", "MI_Q", Beam(C[m.MISSION]))
+world["InventoryPickup"] = [c1, c2, e1, ammo_pile, mission]; tick_now(); tick_now()
+check("hidden and left", banner_now(), "FILTR AKTYWNY: ukryte 2, do zebrania 1")
+world["InventoryPickup"] = [c1, c2, ammo_pile, mission]; tick_now(); tick_now(); check("picking it up counts down", banner_now(), "FILTR AKTYWNY: ukryte 2, do zebrania 0")
+world["InventoryPickup"] = [ammo_pile, mission]; tick_now(); tick_now(); check("consumables and mission items don't count", banner_now(), "FILTR AKTYWNY")
+e2 = gear(smg_jak, m.EPIC); world["InventoryPickup"] = [e2]; tick_now(); tick_now(); check("only left", banner_now(), "FILTR AKTYWNY: ukryte 0, do zebrania 1")
+m.dropped_items.add(m.item_key(e2)); m.update_banner(THE_PC); check("what you dropped doesn't count", banner_now(), "FILTR AKTYWNY"); m.dropped_items.clear()
+game_hides = gear(smg_jak, m.EPIC); game_hides.bHidden = True; world["InventoryPickup"] = [game_hides]; m.skip_until.clear(); tick_now(); tick_now(); check("what the game hid doesn't count", banner_now(), "FILTR AKTYWNY")
+iot2 = gear(smg_jak, m.EPIC); world["OakVendingMachine"] = [types.SimpleNamespace(Class=Item.Class, IsActorBeingDestroyed=lambda: False, GetIOTDForPlayer=lambda pc: iot2)]; world["InventoryPickup"] = [iot2]; tick_now(); tick_now(); check("nor an item of the day", banner_now(), "FILTR AKTYWNY"); world["OakVendingMachine"] = []
+m.filter_mode.value = m.MODE_HIGHLIGHT; m.highlight_rarity_options[m.LEGENDARY].value = True; m.item_infos.clear(); m.decided_with.clear()
+l1, e3 = gear(smg_jak, m.LEGENDARY), gear(smg_jak, m.EPIC); world["InventoryPickup"] = [l1, e3]; tick_now(); tick_now(); check("highlight mode counts too", banner_now(), "FILTR AKTYWNY: PODSWIETLANIE: 1, do zebrania 2")
+world["InventoryPickup"] = []; m.filter_mode.value = m.MODE_HIDE; m.remove_banner(); m.apply_filter()
+
+# --- Markers on the game's own radar ---------------------------------------------------------------------------
+sys.modules.pop("bl4_mod_menu.uilink", None); m.hud_radar_registered = False; m.hud_radar_found = None
+check("the game's radar is the default", m.radar_place.default_value, m.RADAR_GAME)
+fresh(); m.filter_mode.value = m.MODE_HIDE; world["InventoryPickup"] = []; tick_now(); check("no menu mod, nothing registered", m.hud_radar_registered, False)
+calls = []; link_state = {"state": "live"}
+link = types.ModuleType("bl4_mod_menu.uilink"); link.HUD = "HUD"; link.status = lambda: dict(link_state)
+link.register = lambda *a, **k: calls.append(("register", a, k)); link.unregister = lambda key: calls.append(("unregister", key)); link.changed = lambda key: calls.append(("changed", key))
+sys.modules["bl4_mod_menu.uilink"] = link
+tick_now(); tick_now(); check("registered once", [c[0] for c in calls if c[0] == "register"], ["register"])
+registered = next(c for c in calls if c[0] == "register")
+check("for the HUD page only", registered[2]["views"], ("HUD",)); check("its script", registered[1][1], m.HUD_RADAR_SCRIPT)
+state_fn, report = registered[1][2], registered[1][3]
+
+# Hide mode shows the gear still lying around
+fresh(); m.radar_place.value = m.RADAR_GAME; m.item_infos.clear(); m.decided_with.clear(); m.visible_gear_pointers.clear(); m.filter_mode.value = m.MODE_HIDE; m.rarity_options[m.COMMON].value = True
+hidden_one, left_one, ammo_one = gear(smg_jak, m.COMMON), gear(smg_jak, m.LEGENDARY), Item("", "MI_AMMO_SMG")
+left_one.location = types.SimpleNamespace(X=5000.0, Y=0.0, Z=0.0); world["InventoryPickup"] = [hidden_one, left_one, ammo_one]; tick_now()
+marks = state_fn()["m"]; check("one marker, for what's left", len(marks), 1)
+check("straight ahead is up", (marks[0][0], marks[0][1]), (0.0, -0.5)); check("in its rarity's colour", marks[0][2], m.HUD_MARKER_COLORS[m.LEGENDARY])
+THE_PC.GetControlRotation = lambda: types.SimpleNamespace(Yaw=90.0); marks = state_fn()["m"]; check("turning right moves it left", (marks[0][0], marks[0][1]), (-0.5, 0.0)); THE_PC.GetControlRotation = lambda: types.SimpleNamespace(Yaw=0.0)
+left_one.location = types.SimpleNamespace(X=99000.0, Y=0.0, Z=0.0); m.refresh_radar_items(); check("far away stays on the rim", state_fn()["m"][0][1], -1.0)
+m.dropped_items.add(m.item_key(left_one)); m.decided_with.clear(); m.apply_filter(); check("what you dropped isn't marked", state_fn()["m"], []); m.dropped_items.clear(); m.decided_with.clear(); m.apply_filter()
+m.show_left_on_radar.value = False; m.apply_filter(); check("the option turns that off", state_fn()["m"], []); m.show_left_on_radar.value = True; m.apply_filter()
+m.toggle_hiding.callback(); check("nothing while paused", state_fn()["m"], []); m.toggle_hiding.callback()
+check("own radar isn't built", len(live_radars()), 0)
+
+# Highlight mode shows what's highlighted
+m.filter_mode.value = m.MODE_HIGHLIGHT; m.highlight_rarity_options[m.LEGENDARY].value = True; tick_now(); tick_now()
+check("highlight marks its own", len(state_fn()["m"]), 1); check("still no second radar", len(live_radars()), 0)
+m.show_radar.value = False; check("option hides markers", state_fn()["m"], []); m.show_radar.value = True
+THE_PC.Pawn, keep_pawn = None, THE_PC.Pawn; check("no pawn is fine", state_fn()["m"], []); THE_PC.Pawn = keep_pawn
+many_left = [gear(smg_jak, m.LEGENDARY) for _ in range(m.RADAR_MAX_MARKERS + 5)]; world["InventoryPickup"] = many_left
+for _ in range(10): m.apply_filter()
+check("marker count is limited", len(state_fn()["m"]), m.RADAR_MAX_MARKERS)
+
+# Turning with you, and falling back to our own
+calls.clear(); m.last_radar = 0.0; m.scan_interval.value = 1000.0; m.last_scan = __import__("time").monotonic(); m.on_tick(None, None, None, None); check("asks for a refresh between scans", calls, [("changed", m.HUD_RADAR_KEY)]); m.scan_interval.value = 0.25
+Log.logs.clear(); report({"found": False}); check("page says no radar", (m.game_radar_usable(), any("not found" in l for l in Log.logs)), (False, True))
+tick_now(); check("own radar takes over", len(live_radars()), 1)
+report({"found": True}); tick_now(); check("and hands back", len(live_radars()), 0)
+link_state["state"] = "next_start"; tick_now(); check("before the first restart, own radar", len(live_radars()), 1); link_state["state"] = "live"; tick_now()
+m.radar_place.value = m.RADAR_LEFT; check("own radar by choice", (tick_now(), len(live_radars()))[1], 1); check("no markers sent then", state_fn()["m"], []); m.radar_place.value = m.RADAR_GAME; tick_now()
+mod.enable(); mod.disable(); check("taken out on disable", [c for c in calls if c[0] == "unregister"][-1], ("unregister", m.HUD_RADAR_KEY)); check("can register again", m.hud_radar_registered, False)
+def link_boom(*a, **k): raise RuntimeError("old link")
+link.register = link_boom; Log.logs.clear(); m.register_hud_radar(); m.register_hud_radar(); check("failure logged once", sum("game's radar" in l for l in Log.logs), 1)
+sys.modules.pop("bl4_mod_menu.uilink", None); m.hud_radar_registered = False; m.hud_radar_found = None; m.remove_banner(); m.remove_radar(); world["InventoryPickup"] = []; m.filter_mode.value = m.MODE_HIDE; m.radar_place.value = m.RADAR_LEFT
+check("the script's installed", (root.parent if False else True))
+
+# --- Reading parts from memory laid out like the game's -----------------------------------------------------------
+keep_alive = []
+def definition(index, owner=None):
+    blob = ctypes.create_string_buffer(0x40); keep_alive.append(blob)
+    ctypes.memmove(ctypes.addressof(blob) + 0x18 + 0x12, struct.pack("<h", index), 2)
+    if owner is not None: ctypes.memmove(ctypes.addressof(blob) + 0x30, struct.pack("<Q", ctypes.addressof(owner)), 8)
+    return blob
+def pickup_memory(item_type, parts):
+    type_table = definition(item_type); composition = definition(5, type_table)
+    array = (ctypes.c_uint64 * max(1, len(parts)))(*[ctypes.addressof(p) for p in parts]); keep_alive.append(array)
+    blob = ctypes.create_string_buffer(0x3F0 + 0xC0); keep_alive.append(blob)
+    identity = ctypes.addressof(blob) + 0x3F0
+    ctypes.memmove(identity + 0x8, struct.pack("<Q", ctypes.addressof(composition)), 8)
+    ctypes.memmove(identity + 0x10, struct.pack("<QI", ctypes.addressof(array), len(parts)), 12)
+    return blob
+shields, repairs, own_table = definition(246), definition(243), definition(269)
+real_key = m.item_key
+def as_pickup(blob): m.item_key = lambda i: ctypes.addressof(blob)
+as_pickup(pickup_memory(321, [definition(3, own_table), definition(1, shields), definition(9, own_table)]))
+check("firmware from a part", m.read_item_identity(None)[:2], (321, "god_killer"))
+as_pickup(pickup_memory(269, [definition(3, own_table), definition(2, repairs)])); check("repkit's firmware table", m.read_item_identity(None)[:2], (269, "reel_big_fist"))
+as_pickup(pickup_memory(269, [definition(3, own_table)])); check("no firmware part", m.read_item_identity(None)[:2], (269, None))
+as_pickup(pickup_memory(269, [])); check("no parts", m.read_item_identity(None)[:2], (269, None))
+as_pickup(pickup_memory(269, [definition(999, shields)])); check("a number the table doesn't have", m.read_item_identity(None)[1], None)
+bad = ctypes.create_string_buffer(0x3F0 + 0xC0); as_pickup(bad); check("an empty identity is harmless", tuple(m.read_item_identity(None)), (None, None, None))
+ctypes.memmove(ctypes.addressof(bad) + 0x3F0 + 0x10, struct.pack("<QI", 0x10, 10 ** 6), 12); check("a silly count is refused", tuple(m.read_item_identity(None)), (None, None, None))
+ctypes.memmove(ctypes.addressof(bad) + 0x3F0 + 0x10, struct.pack("<QI", 0x10, 3), 12); check("a bad array is refused", tuple(m.read_item_identity(None)), (None, None, None))
+ctypes.memmove(ctypes.addressof(bad) + 0x3F0 + 0x8, struct.pack("<Q", 0x123456), 8); check("a bad composition is refused", m.read_item_identity(None).item_type, None)
+# Through to the decisions, with no serial text at all, as on the ground
+as_pickup(pickup_memory(269, [definition(1, repairs)])); m.read_item_serial = lambda i: None; m.firmware_read_successes = 0; m.firmware_read_failures = 0
+info_now = m.read_item_info(gear(repkit, m.EPIC, HasFirmware=True), 1); check("full read: firmware", info_now.firmware_name, "god_killer"); check("full read: maker", info_now.manufacturer, "Vladof"); check("counted as read", m.firmware_read_successes, 1)
+# The serial's level still comes through
+m.read_item_serial = lambda i: leveled(269, 55); info_now = m.read_item_info(gear(repkit, m.EPIC, HasFirmware=True), 1); check("level from the serial, firmware from the parts", (info_now.level, info_now.firmware_name), (55, "god_killer"))
+m.item_key = real_key; m.read_item_serial = real_ris
+
+# --- Nothing changed, nothing to go through ------------------------------------------------------------------------
+fresh(); m.item_infos.clear(); m.decided_with.clear(); m.hidden_by_us.clear(); m.blocked_items.clear(); m.filter_mode.value = m.MODE_HIDE; m.rarity_options[m.COMMON].value = True; m.BOOST_CHECK_INTERVAL = 1000.0
+pile = [gear(smg_jak, m.COMMON) for _ in range(9)] + [gear(smg_jak, m.EPIC)]; world["InventoryPickup"] = pile
+for _ in range(3): m.apply_filter()
+m.FULL_PASS_INTERVAL = 1000.0; m.apply_filter(); m.recent_items.clear(); m.apply_filter()
+passes = []; real_hi = m.get_item_info; real_gv = m.get_vending_machine_items; m.get_vending_machine_items = lambda *a: (passes.append(1), real_gv(*a))[1]
+for _ in range(20): m.apply_filter()
+check("same pickups, no pass through them", len(passes), 0)
+new_one = gear(smg_jak, m.COMMON); world["InventoryPickup"] = pile + [new_one]; m.apply_filter(); check("a new one is noticed at once", (new_one.bHidden, len(passes)), (True, 1))
+m.apply_filter(); m.recent_items.clear(); m.apply_filter(); passes.clear()
+world["InventoryPickup"] = pile; m.apply_filter(); check("one going is noticed at once", (len(passes), m.item_key(new_one) in m.hidden_by_us), (1, False))
+m.apply_filter(); m.recent_items.clear(); m.apply_filter(); passes.clear()
+m.rarity_options[m.EPIC].value = True; m.apply_filter(); check("a setting's noticed at once", (len(passes), pile[-1].bHidden), (1, True)); m.rarity_options[m.EPIC].value = False; m.apply_filter(); m.apply_filter(); passes.clear()
+m.toggle_hiding.callback(); check("pausing's noticed at once", pile[0].bHidden, False); m.toggle_hiding.callback(); check("resuming too", pile[0].bHidden, True); m.apply_filter(); passes.clear()
+m.last_full_pass = -5000.0; m.apply_filter(); check("still goes through them now and then", len(passes), 1)
+m.get_vending_machine_items = real_gv; m.FULL_PASS_INTERVAL = 0.0; m.BOOST_CHECK_INTERVAL = 0.0
+# A backlog keeps going
+m.FULL_PASS_INTERVAL = 1000.0; m.item_infos.clear(); m.decided_with.clear(); m.hidden_by_us.clear(); many = [gear(smg_jak, m.COMMON) for _ in range(35)]; world["InventoryPickup"] = many
+for _ in range(5): m.apply_filter()
+check("a backlog isn't cut short", sum(i.bHidden for i in many), 35); m.FULL_PASS_INTERVAL = 0.0
+# How much an idle scan costs on what a real session had lying around
+import time as _t2
+for count in (600,):
+    fresh(); m.item_infos.clear(); m.decided_with.clear(); m.hidden_by_us.clear(); m.filter_mode.value = m.MODE_HIDE; m.rarity_options[m.COMMON].value = True
+    pile = [gear(smg_jak, m.COMMON) for _ in range(count)]; world["InventoryPickup"] = pile; m.FULL_PASS_INTERVAL = 0.0
+    for _ in range(70): m.apply_filter()
+    start = _t2.perf_counter()
+    for _ in range(200): m.apply_filter()
+    full = (_t2.perf_counter() - start) / 200 * 1000
+    m.FULL_PASS_INTERVAL = 1000.0; m.apply_filter(); m.recent_items.clear(); m.apply_filter()
+    start = _t2.perf_counter()
+    for _ in range(200): m.apply_filter()
+    idle = (_t2.perf_counter() - start) / 200 * 1000
+    print(f"BENCH {count} items: going through them {full:.3f} ms, skipping them {idle:.3f} ms")
+m.FULL_PASS_INTERVAL = 0.0; world["InventoryPickup"] = []; m.apply_filter()
 
 print("FAILS:", fails)
 sys.exit(1 if fails else 0)

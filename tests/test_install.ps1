@@ -25,7 +25,7 @@ try {
 
     $code = Run "/i `"$Msi`" /qn INSTALLFOLDER=`"$fake\`" VCREDIST_MINOR=99 /l*v `"$base\install.log`""
     Check "install (exit $code)" ($code -eq 0)
-    foreach ($f in 'OakGame\Binaries\Win64\dsound.dll', 'OakGame\Binaries\Win64\Plugins\unrealsdk.dll', 'OakGame\Binaries\Win64\Plugins\unrealsdk.toml', 'sdk_mods\__main__.py', 'sdk_mods\mods_base.sdkmod', 'sdk_mods\console_mod_menu.sdkmod', 'sdk_mods\keybinds\keybinds.pyd', 'sdk_mods\GroundItemHider.sdkmod', 'sdk_mods\bl4_mod_menu.sdkmod', 'sdk_mods\.licenses\PRZECZYTAJ.txt', 'sdk_mods\.licenses\GPL-3.0.txt') {
+    foreach ($f in 'OakGame\Binaries\Win64\dsound.dll', 'OakGame\Binaries\Win64\Plugins\unrealsdk.dll', 'OakGame\Binaries\Win64\Plugins\unrealsdk.toml', 'sdk_mods\__main__.py', 'sdk_mods\mods_base.sdkmod', 'sdk_mods\console_mod_menu.sdkmod', 'sdk_mods\keybinds\keybinds.pyd', 'sdk_mods\GroundItemHider.sdkmod', 'sdk_mods\bl4_mod_menu.sdkmod', 'sdk_mods\.licenses\PRZECZYTAJ.txt', 'sdk_mods\.licenses\GPL-3.0.txt', 'OakGame\Content\uiresources\bl4groundhider\hud_radar.js') {
         Check "installed $f" (Test-Path -LiteralPath "$fake\$f")
     }
     Check 'settings enable the filter' ((Get-Content -LiteralPath "$fake\sdk_mods\settings\GroundItemHider.json" -Raw) -match '"enabled": true')
@@ -64,6 +64,7 @@ try {
     Check 'registry cleaned' (-not (Test-Path 'HKLM:\Software\GroundItemHider'))
     Check 'real game untouched' ($before -eq (RealHash))
     Say('left: ' + ((Get-ChildItem -LiteralPath $fake -Recurse -File | ForEach-Object { $_.FullName.Substring($fake.Length + 1) }) -join '; '))
+    Say('empty folders left: ' + ((Get-ChildItem -LiteralPath $fake -Recurse -Directory | Where-Object { -not (Get-ChildItem -LiteralPath $_.FullName -Force) } | ForEach-Object { $_.FullName.Substring($fake.Length + 1) }) -join '; '))
 
     # --- Replacing what's already there ---
     if ($OldMsi) {

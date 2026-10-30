@@ -22,6 +22,7 @@ Oak2 Mod Manager v0.3, z unrealsdk i pyunrealsdk (bl-sdk). Licencja LGPL-3.0.
 BL4 Mod Menu (flameaway). Licencja GPL-3.0.
   Kod źródłowy jest w sdk_mods\bl4_mod_menu.sdkmod oraz na stronie:
   https://github.com/flameaway/bl4-fix
+  Zmieniona wersja: poprawiony pasek przewijania w ui\menu.js (30.10.2026).
 
 Python 3.14 (Python Software Foundation). Licencja PSF, plik Python-LICENSE.txt.
 

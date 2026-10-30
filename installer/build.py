@@ -14,7 +14,9 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw
 
-VERSION = "1.3.0"
+from patch_menu import patch_sdkmod
+
+VERSION = "1.4.0"
 VCREDIST_MINOR = "50"  # The oldest Visual C++ runtime which doesn't get replaced
 
 HERE = Path(__file__).resolve().parent
@@ -41,7 +43,13 @@ def make_payload() -> None:
 
     mods = PAYLOAD / "sdk_mods"
     shutil.copy(package_mod(), mods / "GroundItemHider.sdkmod")
-    shutil.copy(VENDOR / "bl4_mod_menu.sdkmod", mods / "bl4_mod_menu.sdkmod")
+    # Has our scrollbar fix, see patch_menu.py
+    patch_sdkmod(VENDOR / "bl4_mod_menu.sdkmod", mods / "bl4_mod_menu.sdkmod")
+
+    # Run in the game's HUD page, through the link BL4 Mod Menu runs
+    page_scripts = PAYLOAD / "OakGame" / "Content" / "uiresources" / "bl4groundhider"
+    page_scripts.mkdir(parents=True)
+    shutil.copy(HERE / "src" / "hud_radar.js", page_scripts / "hud_radar.js")
 
     # Dot folders aren't loaded as mods
     licenses = mods / ".licenses"
@@ -54,6 +62,18 @@ def make_payload() -> None:
 
     settings = BUILD / "GroundItemHider.json"
     settings.write_text('{"enabled": true}\n', encoding="utf8")
+
+
+def make_icon() -> Path:
+    """Draws the icon for the list of installed apps: a filter funnel in the mod's colours."""
+    icon = Image.new("RGBA", (64, 64), (14, 22, 31, 255))
+    draw = ImageDraw.Draw(icon)
+    orange = (247, 130, 30, 255)
+    draw.polygon(((8, 10), (56, 10), (38, 32), (26, 32)), fill=orange)
+    draw.rectangle((27, 32, 37, 54), fill=orange)
+    path = BUILD / "icon.ico"
+    icon.save(path, sizes=[(16, 16), (32, 32), (48, 48), (64, 64)])
+    return path
 
 
 def make_bitmaps() -> tuple[Path, Path]:
@@ -125,6 +145,7 @@ def main() -> None:
                 "-d", f"SettingsFile={BUILD / 'GroundItemHider.json'}",
                 "-d", f"CaDll={ca}",
                 "-d", f"VcRedistExe={VENDOR / 'vc_redist.x64.exe'}",
+                "-d", f"IconFile={make_icon()}",
                 "-d", f"BannerBmp={banner}",
                 "-d", f"DialogBmp={dialog}",
                 "-o", str(msi),
