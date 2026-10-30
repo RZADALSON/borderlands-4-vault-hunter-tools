@@ -2,16 +2,18 @@
 
 Filtr lootu do Borderlands 4 z instalatorem MSI. Wskazujesz folder gry, a resztę instalator robi sam.
 
-> **Status: wersja testowa.** Filtr działa w grze autora. Instalacja, naprawa i odinstalowanie przeszły test
-> na fałszywym folderze gry, ale instalator nie był jeszcze sprawdzony z prawdziwą grą na innym komputerze.
-> Przed instalacją zamknij grę.
+> **Status:** filtr działa w grze autora, a instalacja, aktualizacja, naprawa i odinstalowanie przeszły test na
+> fałszywym folderze gry. Przed instalacją zamknij grę. Jeśli masz już starszą wersję, instalator ją podmieni i
+> zostawi Twoje ustawienia.
 
 ## Co potrafi
 
 - **Ukrywanie:** wybrane itemy znikają z ziemi. Nic nie jest usuwane ani przenoszone, więc po wyłączeniu
-  filtra wracają. Filtrować można po rzadkości, firmie i typie, a także ukrywać amunicję, zdrowie i inne pickupy.
+  filtra wracają. Filtrować można po rzadkości, firmie, typie i postaci (mody klasowe), a także ukrywać amunicję,
+  zdrowie i inne pickupy.
 - **Podświetlanie:** wypada wszystko, a wybrane itemy dostają mocniejszy beam i znacznik na małym radarze.
-- **Napis `FILTR AKTYWNY`** w prawym górnym rogu, gdy filtr działa.
+- **Wybór firmware:** decydujesz, który z 24 zestawów jest zawsze pokazywany lub podświetlany.
+- **Napis `FILTR AKTYWNY`** w prawym górnym rogu, gdy filtr działa. Pokazuje też liczbę ukrytych itemów.
 - **Ustawienia w grze:** F7 otwiera menu po polsku. F8 chwilowo wstrzymuje filtr.
 
 Domyślnie ukrywane są itemy białe, zielone i niebieskie. Sprzęt z firmware, anointmentem i shiny zawsze
@@ -22,7 +24,8 @@ zostaje widoczny, chyba że wyłączysz to w opcjach.
 1. Pobierz `GroundItemHider-Setup-*.msi` z [Releases](../../releases).
 2. Zamknij Borderlands 4 i uruchom instalator.
 3. Sprawdź wykryty folder gry albo wskaż ten z plikiem `Borderlands4.exe`.
-4. Uruchom grę i naciśnij F7. Jeśli za pierwszym razem menu się nie otworzy, uruchom grę jeszcze raz.
+4. Uruchom grę. Pierwszy start przygotowuje menu, a w prawym górnym rogu pojawi się prośba o restart.
+5. Uruchom grę ponownie. Teraz F7 albo pozycja **MODS** w menu pauzy otwiera pełne menu w interfejsie gry.
 
 Instalator nie jest podpisany cyfrowo, więc Windows SmartScreen może pokazać ostrzeżenie. Sumę SHA-256
 pliku znajdziesz w opisie wydania.
@@ -57,7 +60,7 @@ Do `installer/vendor/` trzeba najpierw włożyć pliki, których nie ma w repozy
 | `oak2-sdk.zip` | [oak2-mod-manager v0.3](https://github.com/bl-sdk/oak2-mod-manager/releases/tag/v0.3) |
 | `bl4_mod_menu.sdkmod` | [bl4-fix v2026.10.29.1](https://github.com/flameaway/bl4-fix/releases/tag/v2026.10.29.1) |
 | `vc_redist.x64.exe` | [Microsoft](https://aka.ms/vs/17/release/vc_redist.x64.exe) |
-| `GPL-3.0.txt`, `LGPL-3.0.txt`, `Python-LICENSE.txt` | teksty licencji |
+| `GPL-3.0.txt`, `LGPL-3.0.txt`, `Python-LICENSE.txt`, `bl4-LICENSE.txt` | teksty licencji |
 
 ## Autorzy i licencje
 
@@ -73,5 +76,7 @@ Odczyt rzadkości z beamu jest zaadaptowany z [BL4 Loot Filter](https://github.c
 (Lango, GPL-3.0), który przypisuje oryginalną logikę SlippyCheeze. Palety kolorów i ścieżki itemów porównano
 z [Loot Magnet](https://github.com/max0n4ik/LootMagnet). Na ekrany UMG wskazał wzorzec
 [bl4-fix](https://github.com/flameaway/bl4-fix).
+
+Tabela części firmware pochodzi z [bl4](https://github.com/monokrome/bl4) (monokrome, BSD-2-Clause).
 
 Projekt nieoficjalny, niezwiązany z Gearbox ani 2K. Oprogramowanie jest dostarczane bez żadnej gwarancji.

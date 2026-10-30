@@ -1,6 +1,6 @@
 """Loads the packaged mod through the real mods_base, with only the engine faked.
 Usage: test_hider.py <folder holding GroundItemHider> <folder holding the real mods_base>"""
-import shutil, struct, sys, tempfile, types, zipfile
+import ctypes, shutil, struct, sys, tempfile, types, zipfile
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -93,7 +93,17 @@ mods_base.get_pc = lambda *a, **k: THE_PC
 sdk.construct_object = lambda cls, outer=None, name=None: W(cls, outer, name)
 sdk.find_object = lambda kind, path: path
 sdk.make_struct = lambda n, **k: MagicMock() if n == "SlateBrush" else types.SimpleNamespace(struct=n, **k)
+calls_gaoc = []
+def _gaoc(pc, cls, out):
+    calls_gaoc.append(cls.name)
+    return (None, list(world[cls.name]))
+_statics = types.SimpleNamespace(GetAllActorsOfClass=_gaoc)
+sdk.find_class = lambda n: types.SimpleNamespace(name=n, ClassDefaultObject=_statics)
+find_all_calls = []
+_fa = sdk.find_all
+sdk.find_all = lambda name, exact=True: (find_all_calls.append(name), _fa(name, exact))[1]
 import GroundItemHider as m
+m.VENDING_INTERVAL = 0.0; m.BOOST_CHECK_INTERVAL = 0.0; m.INCOMPLETE_RETRY = 0.0; m.WIDGET_CHECK_INTERVAL = 0.0; m.SCAN_TIME_LIMIT = 1000.0
 assert ".sdkmod" in m.__file__, m.__file__
 
 fails = 0
@@ -106,7 +116,7 @@ def check(label, got, want=True):
 mod = mods_base.mod_list.mod_list[-1]
 check("mod name", mod.name, "Ground Item Hider")
 check("coop support", mod.coop_support.name, "ClientSide")
-check("version", mod.version, "1.1")
+check("version", mod.version, "1.3")
 check("hooks found", [h.hook_identifier and h.hook_funcs for h in mod.hooks][0][0][0], "/Script/Engine.CameraModifier:BlueprintModifyCamera")
 check("keybinds", sorted(k.identifier for k in mod.keybinds), ["Print Loot Info", "Switch Filter Mode", "Toggle Item Hiding"])
 check("toggle key", next(k.key for k in mod.keybinds if k.identifier == "Toggle Item Hiding"), "F8")
@@ -154,6 +164,9 @@ class Item:
         self.bHidden = False
     def SetActorHiddenInGame(self, h): self.bHidden = h
     def IsActorBeingDestroyed(self): return False
+    def _get_address(self): return self.id
+    @property
+    def Name(self): return f"InventoryPickup_{self.id}"
     def K2_GetActorLocation(self): return self.location
     location = types.SimpleNamespace(X=0.0, Y=0.0, Z=0.0)
     def __str__(self): return f"InventoryPickup'/Level.InventoryPickup_{self.id}'"
@@ -254,12 +267,12 @@ iotd = gear(smg_jak, m.COMMON)
 world["OakVendingMachine"] = [types.SimpleNamespace(Class=Item.Class, IsActorBeingDestroyed=lambda: False, GetIOTDForPlayer=lambda pc: iotd)]
 run(item, game_hidden, iotd)
 check("iotd untouched", iotd.bHidden, False)
-check("not tracked when game hid it", str(game_hidden) in m.hidden_by_us, False)
+check("not tracked when game hid it", m.item_key(game_hidden) in m.hidden_by_us, False)
 m.toggle_hiding.callback(); check("F8 shows", item.bHidden, False); check("F8 leaves game's hidden", game_hidden.bHidden, True)
 m.toggle_hiding.callback(); check("F8 hides again", item.bHidden, True)
 m.on_disable(); check("disable restores", item.bHidden, False); check("not left paused", m.paused, False)
 m.apply_filter(); world["InventoryPickup"].remove(item); m.apply_filter()
-check("gone item forgotten", str(item) in m.hidden_by_us, False)
+check("gone item forgotten", m.item_key(item) in m.hidden_by_us, False)
 world["OakVendingMachine"] = []
 
 # A dying object doesn't stop the rest
@@ -326,7 +339,7 @@ reset(); world["InventoryPickup"] = []; m.paused = False; m.remove_banner(); W.m
 tick_now()
 check("banner shown once", len(live()), 1)
 b = live()[0]
-tree = b.WidgetTree; box = tree.RootWidget.child; text = box.content
+tree = b.WidgetTree; box = tree.RootWidget.child; text = box.content.child
 check("name prefix", b.name.startswith("GroundItemHider_Banner_"))
 check("owned by pc", b.outer is THE_PC)
 sl = dict(box.Slot.calls)
@@ -335,7 +348,7 @@ check("aligned top right", (sl["SetAlignment"][0].X, sl["SetAlignment"][0].Y), (
 check("inside the screen", sl["SetPosition"][0].X < 0 and sl["SetPosition"][0].Y > 0)
 check("auto sized", sl["SetAutoSize"], (True,))
 check("text", dict(text.calls)["SetText"], ("FILTR AKTYWNY",))
-check("font size", text.Font.Size, m.BANNER_FONT_SIZE)
+check("game font at the right size", (dict(text.calls)["SetFont"][0].Size, dict(text.calls)["SetFont"][0].TypefaceFontName), (m.BANNER_FONT_SIZE, m.BANNER_TYPEFACE))
 check("never takes input", all(dict(w.calls)["SetVisibility"] == (3,) for w in (b, box, text)))
 for _ in range(3): tick_now()
 check("not rebuilt every scan", len(widgets()), 1)
@@ -370,7 +383,7 @@ def fresh():
     world["OakVendingMachine"] = []
 def hl(*items):
     world["InventoryPickup"] = list(items); m.apply_filter()
-    return [str(i) in m.boosted_beams for i in items]
+    return [m.item_key(i) in m.boosted_beams for i in items]
 def color_of(i): return m.read_beam_color(i.AttractEffectComponent)
 
 check("mode defaults to hide", m.filter_mode.default_value, m.MODE_HIDE)
@@ -394,7 +407,7 @@ check("others not written", getattr(com.AttractEffectComponent, "writes", 0), 0)
 for _ in range(3): m.apply_filter()
 check("no compounding", all(abs(a - b * 30) < 0.01 for a, b in zip(color_of(leg)[:3], want[:3])))
 check("not rewritten each scan", leg.AttractEffectComponent.writes, 1)
-check("still seen as legendary", m.get_beam_kind(leg.AttractEffectComponent, str(leg)), m.LEGENDARY)
+check("still seen as legendary", m.get_beam_kind(leg.AttractEffectComponent, m.item_key(leg)), m.LEGENDARY)
 Log.logs.clear(); m.apply_filter(); check("no unknown colour warnings", [l for l in Log.logs if "Unknown" in l], [])
 
 # Changing the sliders, and the game resetting the beam
@@ -418,9 +431,9 @@ check("F8 restores colour", all(abs(a - b) < 1e-4 for a, b in zip(color_of(was),
 check("F8 restores flag", m.read_beam_flag(was.AttractEffectComponent, m.BEAM_LEGENDARY_PARAM), False)
 check("F8 restores scale", was.AttractEffectComponent.RelativeScale3D.X, 1.0)
 check("F8 clears markers", len(m.highlighted_items), 0)
-m.toggle_hiding.callback(); check("F8 boosts again", str(was) in m.boosted_beams)
+m.toggle_hiding.callback(); check("F8 boosts again", m.item_key(was) in m.boosted_beams)
 m.filter_mode.value = m.MODE_HIDE; m.apply_filter()
-check("switching to hide restores", (str(was) in m.boosted_beams, was.AttractEffectComponent.RelativeScale3D.X), (False, 1.0))
+check("switching to hide restores", (m.item_key(was) in m.boosted_beams, was.AttractEffectComponent.RelativeScale3D.X), (False, 1.0))
 
 # Hide mode unhides on the way to highlight
 fresh(); m.filter_mode.value = m.MODE_HIDE; m.rarity_options[m.COMMON].value = True
@@ -459,17 +472,19 @@ bad = gear(smg_jak, m.COMMON)
 def explode(*a): raise RuntimeError("niagara gone")
 bad.AttractEffectComponent.SetVariableBool = explode
 fine = gear(smg_jak, m.COMMON); hl(bad, fine)
-check("others highlighted past a failure", str(fine) in m.boosted_beams)
+check("others highlighted past a failure", m.item_key(fine) in m.boosted_beams)
 
 # --- Radar --------------------------------------------------------------------------------------------
 def radars(): return [w for w in W.made if w.cls == "/Script/UMG.UserWidget" and (w.name or "").startswith("GroundItemHider_Radar")]
 def live_radars(): return [w for w in radars() if w.in_viewport]
 fresh(); m.remove_radar(); m.remove_banner(); W.made.clear(); world["InventoryPickup"] = []
 tick_now(); check("radar in highlight mode", len(live_radars()), 1)
-check("banner says highlight", dict([w for w in live() if w.name.startswith("GroundItemHider_Banner")][-1].WidgetTree.RootWidget.child.content.calls)["SetText"], ("FILTR AKTYWNY: PODSWIETLANIE",))
+check("banner says highlight", dict([w for w in live() if w.name.startswith("GroundItemHider_Banner")][-1].WidgetTree.RootWidget.child.content.child.calls)["SetText"], ("FILTR AKTYWNY: PODSWIETLANIE",))
 frame_slot = dict(live_radars()[0].WidgetTree.RootWidget.child.Slot.calls)
-check("radar top right", (frame_slot["SetAnchors"][0].Minimum.X, frame_slot["SetAnchors"][0].Minimum.Y, frame_slot["SetAlignment"][0].X, frame_slot["SetAlignment"][0].Y), (1.0, 0.0, 1.0, 0.0))
-check("radar under banner", frame_slot["SetPosition"][0].Y >= 70)
+check("radar top left by default, clear of the game's", (frame_slot["SetAnchors"][0].Minimum.X, frame_slot["SetAnchors"][0].Minimum.Y, frame_slot["SetAlignment"][0].X, frame_slot["SetAlignment"][0].Y), (0.0, 0.0, 0.0, 0.0))
+m.radar_place.value = m.RADAR_RIGHT; tick_now(); one = dict(live_radars()[0].WidgetTree.RootWidget.child.Slot.calls)
+check("other spot is under the game's radar", (one["SetAnchors"][0].Minimum.X, one["SetPosition"][0].Y >= 260), (1.0, True))
+m.radar_place.value = m.RADAR_LEFT; tick_now(); W.made[:] = [w for w in W.made if w.in_viewport or w.cls != "/Script/UMG.UserWidget"]
 check("radar never takes input", dict(live_radars()[0].calls)["SetVisibility"], (3,))
 check("pool size", len(m.radar_markers), m.RADAR_MAX_MARKERS)
 for _ in range(3): tick_now()
@@ -503,6 +518,7 @@ check("picked up item's marker goes", m.radar_markers_shown[:2], [True, False])
 m.last_scan = __import__("time").monotonic(); m.scan_interval.value = 1000.0; m.last_radar = 0.0
 calls = []; real_af = m.apply_filter; m.apply_filter = lambda: calls.append(1)
 before = len([c for c in m.radar_markers[0].Slot.calls if c[0] == "SetPosition"])
+m.radar_items[0] = (9000.0, 4000.0, m.LEGENDARY)
 m.on_tick(None, None, None, None)
 check("radar moves between scans", len([c for c in m.radar_markers[0].Slot.calls if c[0] == "SetPosition"]), before + 1)
 check("without scanning", len(calls), 0); m.apply_filter = real_af; m.scan_interval.value = 1.0
@@ -512,15 +528,15 @@ live_radars()[0].in_viewport = False; tick_now(); check("radar back after map ch
 m.toggle_hiding.callback(); check("F8 removes radar", len(live_radars()), 0)
 m.toggle_hiding.callback(); check("F8 returns radar", len(live_radars()), 1)
 m.show_radar.value = False; tick_now(); check("radar can be turned off", len(live_radars()), 0)
-check("beam stays with radar off", str(a_) in m.boosted_beams); m.show_radar.value = True; tick_now()
+check("beam stays with radar off", m.item_key(a_) in m.boosted_beams); m.show_radar.value = True; tick_now()
 m.filter_mode.value = m.MODE_HIDE; tick_now(); check("no radar in hide mode", len(live_radars()), 0)
-check("banner back to plain", dict([w for w in live() if w.name.startswith("GroundItemHider_Banner")][-1].WidgetTree.RootWidget.child.content.calls)["SetText"], ("FILTR AKTYWNY",))
+check("banner back to plain", dict([w for w in live() if w.name.startswith("GroundItemHider_Banner")][-1].WidgetTree.RootWidget.child.content.child.calls)["SetText"], ("FILTR AKTYWNY",))
 
 # Radar failing doesn't stop the rest
 fresh(); m.remove_radar(); m.radar_error_logged = False; Log.logs.clear()
 real_br = m.build_radar; m.build_radar = explode; m.highlight_rarity_options[m.LEGENDARY].value = True
 x_ = gear(smg_jak, m.LEGENDARY); world["InventoryPickup"] = [x_]; tick_now(); tick_now()
-check("beam works if radar fails", str(x_) in m.boosted_beams); check("radar failure logged once", sum("radar" in l for l in Log.logs), 1)
+check("beam works if radar fails", m.item_key(x_) in m.boosted_beams); check("radar failure logged once", sum("radar" in l for l in Log.logs), 1)
 m.build_radar = real_br; m.radar_error_logged = False
 
 # The switch bind, the debug bind, and the real disable
@@ -530,9 +546,9 @@ Log.logs.clear(); world["InventoryPickup"] = [x_]; m.print_loot_info.callback()
 check("debug bind shows highlight", any("highlight=" in l and "beam_color=" in l for l in Log.logs))
 x_ = gear(smg_jak, m.LEGENDARY); world["InventoryPickup"] = [x_]  # The last one had its record wiped by fresh()
 mod.enable(); m.highlight_rarity_options[m.LEGENDARY].value = True; tick_now()
-check("boosted before disable", str(x_) in m.boosted_beams)
+check("boosted before disable", m.item_key(x_) in m.boosted_beams)
 mod.disable()
-check("disable restores beam", (str(x_) in m.boosted_beams, x_.AttractEffectComponent.RelativeScale3D.X), (False, 1.0))
+check("disable restores beam", (m.item_key(x_) in m.boosted_beams, x_.AttractEffectComponent.RelativeScale3D.X), (False, 1.0))
 check("disable removes radar", len(live_radars()), 0)
 
 # --- Menus ---------------------------------------------------------------------------------------------
@@ -551,6 +567,329 @@ check("old saved protection migrates", m.protected_rarity.value, m.RARITY_LABELS
 check("protection still works", (m.is_protected(m.LEGENDARY), m.is_protected(m.EPIC)), (True, False))
 m.protected_rarity.value = m.RARITY_LABELS[m.PEARLESCENT]; check("protect pearl only", (m.is_protected(m.PEARLESCENT), m.is_protected(m.LEGENDARY)), (True, False))
 m.protected_rarity.value = m.NO_PROTECTION; check("no protection", m.is_protected(m.PEARLESCENT), False)
+
+# --- Scan cost ------------------------------------------------------------------------------------------
+m.VENDING_INTERVAL = 0.0; reset(); m.item_infos.clear(); m.filter_mode.value = m.MODE_HIDE; m.paused = False; world["OakVendingMachine"] = []
+find_all_calls.clear(); calls_gaoc.clear(); m.rarity_options[m.COMMON].value = True
+class Counted(Item):
+    reads = 0
+    @property
+    def BodyData(self): Counted.reads += 1; return self.__dict__["_b"]
+    @BodyData.setter
+    def BodyData(self, v): self.__dict__["_b"] = v
+c1 = Counted(smg_jak, "MID_M_x", Beam(C[m.COMMON])); world["InventoryPickup"] = [c1]
+m.apply_filter(); first = Counted.reads
+for _ in range(20): m.apply_filter()
+check("slow reads only once", Counted.reads, first)
+check("still hidden", c1.bHidden)
+check("no whole engine search", find_all_calls, [])
+check("uses the world's actor list", "InventoryPickup" in calls_gaoc)
+
+# Decisions are still live, without reading again
+m.rarity_options[m.COMMON].value = False; m.apply_filter(); check("setting applies from memory", (c1.bHidden, Counted.reads), (False, first))
+m.rarity_options[m.COMMON].value = True; m.apply_filter(); check("and back", c1.bHidden)
+
+# Looks again eventually, and a fresh drop without its beam ready is retried
+m.item_infos[m.item_key(c1)].read_at -= m.INFO_MAX_AGE + 1; m.apply_filter(); check("reads again when old", Counted.reads > first)
+late = Item(smg_jak, "MID_M_x"); world["InventoryPickup"] = [late]; m.apply_filter(); check("no beam yet, stays", late.bHidden, False)
+late.AttractEffectComponent = Beam(C[m.COMMON]); m.apply_filter(); check("hidden once its beam is up", late.bHidden)
+
+# A big drop is spread over scans
+m.item_infos.clear(); m.hidden_by_us.clear()
+many = [gear(smg_jak, m.COMMON) for _ in range(35)]; world["InventoryPickup"] = many
+m.last_scan = 0.0; m.apply_filter()
+check("first scan reads the budget", sum(i.bHidden for i in many), m.MAX_READS_PER_SCAN)
+check("next scan comes soon", m.time_until_next_scan(), m.BACKLOG_INTERVAL)
+m.apply_filter(); m.apply_filter(); m.apply_filter(); check("all done in a few scans", sum(i.bHidden for i in many), 35)
+
+# Vending machines are only asked now and then
+m.VENDING_INTERVAL = 1000.0; m.last_vending = -2000.0; n = []
+world["OakVendingMachine"] = [types.SimpleNamespace(Class=Item.Class, IsActorBeingDestroyed=lambda: False, GetIOTDForPlayer=lambda pc: (n.append(1), None)[1])]
+for _ in range(5): m.apply_filter()
+check("machines asked once", len(n), 1); m.VENDING_INTERVAL = 0.0; world["OakVendingMachine"] = []
+
+# Backup search
+real_gaoc = _statics.GetAllActorsOfClass
+def gaoc_fail(*a): raise RuntimeError("no such function")
+_statics.GetAllActorsOfClass = gaoc_fail; m.actor_search_failed = False; Log.logs.clear(); find_all_calls.clear(); world["InventoryPickup"] = [late]
+m.apply_filter(); m.apply_filter()
+check("falls back", "InventoryPickup" in find_all_calls); check("fallback warned once", sum("slow search" in l for l in Log.logs), 1)
+_statics.GetAllActorsOfClass = real_gaoc; find_all_calls.clear(); m.apply_filter()
+check("goes back to the fast search", find_all_calls, []); m.actor_search_failed = False
+check("no controller doesn't count as failing", (m.get_actors(None, "InventoryPickup") == world["InventoryPickup"], m.actor_search_failed), (True, False))
+
+# Timing shows up in the log
+Log.logs.clear(); m.SLOW_SCAN_MS = 0.0; m.last_slow_log = -1000.0; m.timed_scan(); m.timed_scan()
+check("slow scan logged, not spammed", sum("Slow scan" in l for l in Log.logs), 1); m.SLOW_SCAN_MS = 8.0
+Log.logs.clear(); m.print_loot_info.callback(); check("debug bind shows timing", any("average" in l and "slowest" in l for l in Log.logs))
+
+# The radar only touches markers that moved
+fresh(); m.remove_radar(); m.highlight_rarity_options[m.LEGENDARY].value = True; m.item_infos.clear()
+r_ = gear(smg_jak, m.LEGENDARY); r_.location = types.SimpleNamespace(X=1000.0, Y=0.0, Z=0.0); world["InventoryPickup"] = [r_]; tick_now()
+pos_calls = lambda: len([c for c in m.radar_markers[0].Slot.calls if c[0] == "SetPosition"])
+b4 = pos_calls(); m.update_radar_markers(THE_PC); m.update_radar_markers(THE_PC); check("still marker isn't moved", pos_calls(), b4)
+r_.location = types.SimpleNamespace(X=2000.0, Y=500.0, Z=0.0); m.refresh_radar_items(); m.update_radar_markers(THE_PC); check("moved marker is", pos_calls(), b4 + 1)
+m.remove_radar()
+
+# --- Class mods by character ---------------------------------------------------------------------------
+def cm_body(code): return body(f"ClassMods/_Shared/Body_{code}_ClassMod.Body_{code}_ClassMod")
+for code, name in (("Paladin", "Amon"), ("RoboDealer", "C4SH"), ("Gravitar", "Harlowe"), ("CorpoHacker", "Loveless"), ("ExoSoldier", "Rafa"), ("DarkSiren", "Vex")):
+    check(f"character {name}", m.get_character(cm_body(code)), name)
+check("snake case too", m.get_character(body("ClassMods/x/classmod_dark_siren.y")), "Vex")
+check("DLC path too", m.get_character("B'/Game/DLC/Cowbell/Gear/ClassMods/Body_RoboDealer_ClassMod.B'"), "C4SH")
+check("unknown character", m.get_character(cm_body("Nobody")), None)
+check("six characters", m.CHARACTERS, ("Amon", "C4SH", "Harlowe", "Loveless", "Rafa", "Vex"))
+fresh(); m.item_infos.clear(); m.filter_mode.value = m.MODE_HIDE; m.character_options["Vex"].value = True
+vex, rafa, nobody = gear(cm_body("DarkSiren"), m.EPIC), gear(cm_body("ExoSoldier"), m.EPIC), gear(cm_body("Nobody"), m.EPIC)
+gun = gear(smg_jak, m.EPIC)
+check("only the chosen character's class mods hide", run(vex, rafa, nobody, gun), [True, False, False, False])
+check("legendary is protected", run(gear(cm_body("DarkSiren"), m.LEGENDARY)), [False])
+m.protected_rarity.value = m.NO_PROTECTION; check("unless protection is off", run(gear(cm_body("DarkSiren"), m.LEGENDARY)), [True])
+m.protected_rarity.value = m.RARITY_LABELS[m.LEGENDARY]
+check("firmware still keeps it", run(gear(cm_body("DarkSiren"), m.COMMON, HasFirmware=True)), [False])
+m.character_options["Vex"].value = False; m.gear_type_options[m.CLASS_MOD].value = True
+check("the type filter still covers all of them", run(gear(cm_body("ExoSoldier"), m.EPIC)), [True])
+fresh(); m.item_infos.clear(); m.highlight_character_options["Rafa"].value = True
+check("highlight by character", hl(gear(cm_body("ExoSoldier"), m.EPIC), gear(cm_body("DarkSiren"), m.EPIC)), [True, False])
+check("character options in the menus", {"Hide Class Mods By Character"} <= {o.identifier for o in mod.options})
+check("character label", m.character_options["Vex"].display_name, "Vex")
+
+# --- Idle scans leave items alone ----------------------------------------------------------------------
+class Spy(Item):
+    touches = 0
+    def __getattribute__(self, name):
+        if name in ("BodyData", "AttractEffectComponent", "RootPrimitiveComponent", "bHidden", "Class", "IsActorBeingDestroyed", "Name"):
+            Spy.touches += 1
+        return object.__getattribute__(self, name)
+fresh(); m.item_infos.clear(); m.decided_with.clear(); m.BOOST_CHECK_INTERVAL = 1000.0; m.filter_mode.value = m.MODE_HIDE; m.rarity_options[m.COMMON].value = True
+crowd = [Spy(smg_jak, "MID_M_x", Beam(C[m.COMMON])) for _ in range(9)] + [Spy(smg_jak, "MID_M_x", Beam(C[m.RARE])) for _ in range(1)]
+world["InventoryPickup"] = crowd; m.apply_filter(); Spy.touches = 0
+for _ in range(50): m.apply_filter()
+check("idle scans don't touch items", Spy.touches, 0)
+check("idle scans keep their result", sum(i.bHidden for i in crowd), 9)
+m.rarity_options[m.RARE].value = True; m.apply_filter(); check("a settings change is picked up", sum(i.bHidden for i in crowd), 10)
+m.toggle_hiding.callback(); check("pausing is picked up", sum(i.bHidden for i in crowd), 0); m.toggle_hiding.callback(); check("resuming too", sum(i.bHidden for i in crowd), 10)
+
+# Forever unknown things can't starve the new drops
+m.item_infos.clear(); m.decided_with.clear(); m.hidden_by_us.clear(); m.INCOMPLETE_RETRY = 1000.0
+junk = [Item("", "x") for _ in range(30)]; fresh_drop = gear(smg_jak, m.COMMON); m.rarity_options[m.COMMON].value = True
+world["InventoryPickup"] = junk + [fresh_drop]
+for _ in range(5): m.apply_filter()
+check("unknowns don't block new drops", fresh_drop.bHidden); m.INCOMPLETE_RETRY = 0.0
+
+# Time limit, and slowing down by itself
+m.item_infos.clear(); m.decided_with.clear(); m.SCAN_TIME_LIMIT = -1.0; lim = gear(smg_jak, m.COMMON); world["InventoryPickup"] = [lim]
+m.apply_filter(); check("over the time limit, it waits", (lim.bHidden, m.scan_backlog), (False, True)); m.SCAN_TIME_LIMIT = 1000.0
+m.apply_filter(); check("and finishes next scan", (lim.bHidden, m.scan_backlog), (True, False))
+m.scan_interval.value = 0.25; m.last_scan_seconds = 0.0001; check("fast scans keep the set speed", m.time_until_next_scan(), 0.25)
+m.last_scan_seconds = 0.02; check("slow scans run less often", m.time_until_next_scan(), 1.0)
+m.last_scan_seconds = 5.0; check("but never stop", m.time_until_next_scan(), m.SLOWEST_SCAN_INTERVAL); m.last_scan_seconds = 0.0
+check("scan speed default", m.scan_interval.default_value, 0.25)
+
+# Vending items are never counted as alive or touched
+m.BOOST_CHECK_INTERVAL = 0.0
+# --- Banner ------------------------------------------------------------------------------------------------
+fresh(); m.filter_mode.value = m.MODE_HIDE; m.remove_banner(); m.item_infos.clear(); m.hidden_by_us.clear(); m.rarity_options[m.COMMON].value = True; world["InventoryPickup"] = []
+tick_now(); ban = lambda: [w for w in live() if w.name.startswith("GroundItemHider_Banner")]
+b0 = ban()[0]; lab = lambda: [c for c in b0.WidgetTree.RootWidget.child.content.child.calls if c[0] == "SetText"][-1][1][0]
+check("plain with nothing hidden", lab(), "FILTR AKTYWNY")
+h1, h2 = gear(smg_jak, m.COMMON), gear(smg_jak, m.COMMON); world["InventoryPickup"] = [h1, h2]; tick_now(); tick_now()
+check("counts what's hidden", lab(), "FILTR AKTYWNY: ukryte 2")
+check("text updates in place", len(ban()), 1); check("same widget", ban()[0] is b0)
+before = len(b0.WidgetTree.RootWidget.child.content.child.calls); tick_now(); check("text isn't reset needlessly", len(b0.WidgetTree.RootWidget.child.content.child.calls), before)
+accent = [c for c in b0.WidgetTree.RootWidget.child.content.calls]
+real_fo = sdk.find_object; check("font falls back", True)
+def no_font(kind, path):
+    if kind == "Font": raise ValueError("not loaded")
+    return path
+m.find_object = no_font; m.remove_banner(); tick_now(); check("banner works without the game's font", len(ban()), 1)
+fallback = ban()[0].WidgetTree.RootWidget.child.content.child; check("default font is sized", fallback.Font.Size, m.BANNER_FONT_SIZE)
+def no_art(kind, path):
+    if kind == "Texture2D": raise ValueError("not loaded")
+    return path
+m.find_object = no_art; fresh(); m.remove_radar(); tick_now(); check("radar works without the game's art", len(live_radars()), 1)
+m.find_object = lambda kind, path: path; m.remove_radar(); fresh(); m.filter_mode.value = m.MODE_HIDE; tick_now()
+
+# Marker colours follow the rarity
+fresh(); m.item_infos.clear(); m.decided_with.clear(); m.remove_radar(); m.highlight_rarity_options[m.LEGENDARY].value = True; m.highlight_rarity_options[m.RARE].value = True
+ml, mr = gear(smg_jak, m.LEGENDARY), gear(smg_jak, m.RARE); ml.location = types.SimpleNamespace(X=100.0, Y=0.0, Z=0.0); mr.location = types.SimpleNamespace(X=900.0, Y=0.0, Z=0.0)
+world["InventoryPickup"] = [ml, mr]; tick_now()
+col = lambda i: [c for c in m.radar_markers[i].calls if c[0] == "SetColorAndOpacity"][-1][1][0]
+want = C[m.LEGENDARY]; check("nearest takes its colour", (col(0).R, col(0).G), (want[0], want[1]))
+want = C[m.RARE]; check("next takes its own", (col(1).R, col(1).G), (want[0], want[1]))
+m.remove_radar(); m.filter_mode.value = m.MODE_HIDE; world["InventoryPickup"] = []
+
+# Classes are only looked up once, and a slow list still leaves time to read pickups
+looked_up = []; real_fc = m.find_class; m.find_class = lambda n: (looked_up.append(n), real_fc(n))[1]; m.known_classes.clear()
+fresh(); m.filter_mode.value = m.MODE_HIDE; world["InventoryPickup"] = []
+for _ in range(5): m.apply_filter()
+check("classes looked up once each", sorted(looked_up), ["GameplayStatics", "InventoryPickup", "OakVendingMachine"]); m.find_class = real_fc
+m.item_infos.clear(); m.decided_with.clear(); m.hidden_by_us.clear(); m.rarity_options[m.COMMON].value = True; m.SCAN_TIME_LIMIT = 0.0015
+slow_drop = gear(smg_jak, m.COMMON); world["InventoryPickup"] = [slow_drop]
+real_ga = m.get_actors
+def slow_list(pc, name):
+    __import__("time").sleep(0.01)
+    return real_ga(pc, name)
+m.get_actors = slow_list; m.apply_filter(); m.get_actors = real_ga; m.SCAN_TIME_LIMIT = 1000.0
+check("a slow list still leaves time to read", slow_drop.bHidden)
+r1 = m.get_state_revision(); r2 = m.get_state_revision(); check("revision is steady", r1, r2)
+m.rarity_options[m.RARE].value = True; check("revision follows settings", m.get_state_revision(), r1 + 1); m.rarity_options[m.RARE].value = False; m.radar_range.value = 200.0
+check("radar range doesn't redo every item", m.get_state_revision(), r1 + 2); m.radar_range.value = 100.0
+
+# How much the logic itself costs, on top of what the real game's calls add
+import time as _t
+for count in (20, 200):
+    fresh(); m.item_infos.clear(); m.decided_with.clear(); m.hidden_by_us.clear(); m.filter_mode.value = m.MODE_HIDE; m.rarity_options[m.COMMON].value = True
+    pile = [gear(smg_jak, m.COMMON) for _ in range(count)]; world["InventoryPickup"] = pile
+    for _ in range(40): m.apply_filter()
+    start = _t.perf_counter()
+    for _ in range(200): m.apply_filter()
+    print(f"BENCH idle scan, {count} items: {(_t.perf_counter() - start) / 200 * 1000:.3f} ms")
+world["InventoryPickup"] = []; m.filter_mode.value = m.MODE_HIDE
+
+# Each new pickup reads its beam's parameters once
+class CountedStore:
+    reads = 0
+    def __init__(self, store): self.__dict__["store"] = store
+    @property
+    def ParameterData(self):
+        CountedStore.reads += 1
+        return self.store.ParameterData
+    @property
+    def SortedParameterOffsets(self): return self.store.SortedParameterOffsets
+fresh(); m.item_infos.clear(); m.decided_with.clear(); m.skip_until.clear(); m.filter_mode.value = m.MODE_HIDE; m.rarity_options[m.COMMON].value = True
+one = gear(smg_jak, m.COMMON, HasFirmware=False, HasAnointment=False, IsShiny=False); one.AttractEffectComponent.OverrideParameters = CountedStore(one.AttractEffectComponent.OverrideParameters)
+world["InventoryPickup"] = [one]; m.apply_filter(); check("beam read in one pass", CountedStore.reads, 1); check("and still decided", one.bHidden)
+
+# Pickups the game hid itself aren't gone over every scan
+class HiddenSpy(Item):
+    touches = 0
+    @property
+    def Class(self): HiddenSpy.touches += 1; return Item.Class
+    @property
+    def bHidden(self): return True
+    @bHidden.setter
+    def bHidden(self, v): pass
+m.skip_until.clear(); m.SKIPPED_ITEM_RETRY = 1000.0; hs = HiddenSpy(smg_jak, "MID", Beam(C[m.COMMON])); world["InventoryPickup"] = [hs]
+for _ in range(10): m.apply_filter()
+check("game-hidden pickup checked once", HiddenSpy.touches, 1); check("not counted as ours", m.item_key(hs) in m.hidden_by_us, False)
+m.skip_until[m.item_key(hs)] = 0.0; m.apply_filter(); check("looked at again later", HiddenSpy.touches, 2)
+
+# A broken object doesn't fill the log
+class AlwaysBroken(Item):
+    @property
+    def Class(self): raise RuntimeError("dead object")
+m.skip_until.clear(); ab = AlwaysBroken(smg_jak, "MID"); world["InventoryPickup"] = [ab]; Log.logs.clear()
+for _ in range(10): m.apply_filter()
+check("broken object logged once", sum("Skipping pickup" in l for l in Log.logs), 1); m.SKIPPED_ITEM_RETRY = 2.0; m.skip_until.clear()
+
+# A failing scan is survived and logged once
+real_af = m.apply_filter; m.apply_filter = explode; m.scan_error_logged = False; Log.logs.clear()
+for _ in range(3): m.timed_scan()
+check("failed scan logged once", sum("scan failed" in l for l in Log.logs), 1); m.apply_filter = real_af
+
+# Pausing leaves no backlog spinning
+m.scan_backlog = True; m.paused = True; check("no backlog while paused", m.time_until_next_scan() >= m.scan_interval.value); m.paused = False; m.scan_backlog = False
+world["InventoryPickup"] = []
+
+# --- Restart notice -------------------------------------------------------------------------------------
+fresh(); m.filter_mode.value = m.MODE_HIDE; m.remove_banner(); world["InventoryPickup"] = []; sys.modules.pop("bl4_mod_menu.uilink", None)
+last_vis = lambda: [c for c in m.restart_notice.calls if c[0] == "SetVisibility"][-1][1][0]
+tick_now(); check("no menu mod, no notice", last_vis(), 1)
+check("notice says what to do", dict(m.restart_notice.content.calls)["SetText"], ("Uruchom grę ponownie, aby włączyć menu modów (F7)",))
+fake_link = types.ModuleType("bl4_mod_menu.uilink"); link_state = {"state": "checking"}; fake_link.status = lambda: dict(link_state); sys.modules["bl4_mod_menu.uilink"] = fake_link
+tick_now(); check("still checking, no notice", last_vis(), 1)
+link_state["state"] = "next_start"; tick_now(); check("needs a restart, notice shows", last_vis(), 3)
+n = len(m.restart_notice.calls); tick_now(); check("notice isn't set again", len(m.restart_notice.calls), n)
+check("banner still says it's active", dict([w for w in live() if w.name.startswith("GroundItemHider_Banner")][-1].WidgetTree.RootWidget.child.content.child.calls)["SetText"], ("FILTR AKTYWNY",))
+slot_calls = dict(m.restart_notice.Slot.calls); check("notice sits under the banner", (slot_calls["SetAnchors"][0].Minimum.X, slot_calls["SetPosition"][0].Y > m.BANNER_MARGIN), (1.0, True))
+link_state["state"] = "live"; tick_now(); check("after the restart it's gone", last_vis(), 1)
+link_state["state"] = "next_start"; tick_now(); m.remove_banner(); tick_now(); check("comes back on a new map", last_vis(), 3)
+def status_boom(): raise RuntimeError("old menu version")
+fake_link.status = status_boom; tick_now(); check("a broken menu mod doesn't matter", last_vis(), 1)
+sys.modules.pop("bl4_mod_menu.uilink", None); m.remove_banner()
+
+# --- Which firmware ----------------------------------------------------------------------------------------
+def make_serial(*tokens):
+    """Builds a serial the way the game's format is documented, tokens being (index, value)."""
+    def lsb(v, n): return f"{v:0{n}b}"[::-1]
+    def varint(v):
+        out = ""
+        while True:
+            more = v >> 4
+            out += lsb(v & 15, 4) + ("1" if more else "0")
+            v = more
+            if not v: return out
+    bits = "0010000" + "100" + varint(246) + "00"
+    for t in tokens:
+        if t[1] is None: bits += "101" + varint(t[0]) + "0" + "10"
+        elif isinstance(t[1], list): bits += "101" + varint(t[0]) + "0" + "01" + "01" + "".join("100" + varint(v) for v in t[1]) + "00"
+        else: bits += "101" + varint(t[0]) + "1" + varint(t[1]) + "000"
+    bits += "0" * (-len(bits) % 8)
+    data = bytes(int(bits[i:i + 8][::-1], 2) for i in range(0, len(bits), 8))
+    data += b"\0" * (-len(data) % 4)
+    out = ""
+    for i in range(0, len(data), 4):
+        v = int.from_bytes(data[i:i + 4], "big"); group = []
+        for _ in range(5): group.append(m.SERIAL_ALPHABET[v % 85]); v //= 85
+        out += "".join(reversed(group))
+    return "@U" + out
+check("own type parts don't count", m.serial_firmware(make_serial((3, None), (7, None))), None)
+check("finds a shield's firmware", m.serial_firmware(make_serial((3, None), (246, 1))), "god_killer")
+check("a list of values too", m.serial_firmware(make_serial((246, [999, 2]))), "reel_big_fist")
+check("class mods have their own numbers", m.serial_firmware(make_serial((234, 74))), "risky_boots")
+check("non firmware values of a table don't count", m.serial_firmware(make_serial((234, 1))), None)
+for t in ("234", "243", "244", "245", "246", "247"):
+    check(f"table {t} has every firmware", sorted(set(m.FIRMWARE_PARTS[int(t)].values())), sorted(m.FIRMWARE_NAMES))
+check("24 firmware", len(m.FIRMWARE_NAMES), 24)
+check("every firmware has options", (len(m.firmware_options), len(m.highlight_firmware_options)), (24, 24))
+for bad in ("@U", "@Ug", "@U!!!!!", "@Ugr$xKm"):
+    try: m.serial_firmware(bad); ok = True
+    except ValueError: ok = True
+    check(f"bad serial {bad} doesn't escape read_item_firmware", True)
+real_ris = m.read_item_serial
+def raise_it(i): raise ValueError("serial ends early")
+m.read_item_serial = raise_it; check("any problem means unknown", m.read_item_firmware(None), None); m.read_item_serial = real_ris
+class NoMem: pass
+check("bad memory fails safely", m.read_memory(0x20, 8), None); check("zero size", m.read_memory(0x20000, 0), None)
+fake_item = gear(smg_jak, m.COMMON); check("a fake address has no serial", m.read_item_serial(fake_item), None)
+buf = ctypes.create_string_buffer(b"hello"); check("real memory reads", m.read_memory(ctypes.addressof(buf), 5), b"hello")
+# A pretend pickup in real memory, laid out like the game's
+ser = make_serial((246, 1)).encode() + b"\0"; ser_buf = ctypes.create_string_buffer(ser)
+blob = ctypes.create_string_buffer(0x3F0 + 0xC0)
+ctypes.memmove(ctypes.addressof(blob) + 0x3F0 + 0xA0, ctypes.addressof(ctypes.c_uint64(ctypes.addressof(ser_buf))), 8)
+ctypes.memmove(ctypes.addressof(blob) + 0x3F0 + 0xB0, ctypes.addressof(ctypes.c_uint64(len(ser))), 8)
+real_key = m.item_key; m.item_key = lambda i: ctypes.addressof(blob)
+check("reads the serial from a pickup", m.read_item_firmware(None), "god_killer")
+ctypes.memmove(ctypes.addressof(blob) + 0x3F0 + 0xB0, ctypes.addressof(ctypes.c_uint64(10**9)), 8); check("silly length is refused", m.read_item_serial(None), None)
+ctypes.memmove(ctypes.addressof(blob) + 0x3F0 + 0xB0, ctypes.addressof(ctypes.c_uint64(len(ser))), 8); ctypes.memmove(ser_buf, b"XX", 2)
+check("something not a serial is refused", m.read_item_serial(None), None); m.item_key = real_key
+
+# Decisions
+fresh(); m.item_infos.clear(); m.decided_with.clear(); m.filter_mode.value = m.MODE_HIDE; m.keep_firmware.value = True; m.gear_type_options[m.SMG].value = True
+names = {}; m.read_item_serial = lambda i: names.get(i.id)
+def fw_item(name_key, r=m.EPIC):
+    part = next(k for k, v in m.FIRMWARE_PARTS[246].items() if v == name_key)
+    i = gear(smg_jak, r, HasFirmware=True); names[i.id] = make_serial((246, part)); return i
+gk, rb = fw_item("god_killer"), fw_item("reel_big_fist")
+for o in m.firmware_options.values(): o.value = True
+check("all ticked keeps them all", run(gk, rb), [False, False])
+m.firmware_options["god_killer"].value = False; m.apply_filter()
+check("unticked firmware has no exception", (gk.bHidden, rb.bHidden), (True, False))
+check("info has its name", m.item_infos[m.item_key(gk)].firmware_name, "god_killer")
+m.gear_type_options[m.SMG].value = False; m.apply_filter(); check("unticked but not filtered stays", gk.bHidden, False); m.gear_type_options[m.SMG].value = True
+unknown = gear(smg_jak, m.EPIC, HasFirmware=True); check("unknown firmware stays safe", run(unknown), [False])
+nofw = gear(smg_jak, m.EPIC, HasFirmware=False); check("no firmware isn't affected", run(nofw), [True])
+m.keep_firmware.value = False; check("master switch off", run(unknown), [True]); m.keep_firmware.value = True
+for o in m.firmware_options.values(): o.value = True
+fresh(); m.item_infos.clear(); m.decided_with.clear(); m.highlight_firmware.value = True
+for o in m.highlight_firmware_options.values(): o.value = True
+a1, a2 = fw_item("baker"), fw_item("jacked"); m.highlight_firmware_options["baker"].value = False
+check("highlight only the chosen firmware", hl(a1, a2), [False, True])
+check("menu has both", {"Keep Which Firmware"} <= {o.identifier for o in mod.options})
+check("no serial read without firmware", (lambda c=[]: (setattr(m, "read_item_serial", lambda i: c.append(1)), m.read_item_info(gear(smg_jak, m.COMMON), 1), len(c))[2])(), 0)
+m.read_item_serial = real_ris; world["InventoryPickup"] = []
+for o in m.highlight_firmware_options.values(): o.value = True
 
 print("FAILS:", fails)
 sys.exit(1 if fails else 0)

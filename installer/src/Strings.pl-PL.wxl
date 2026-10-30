@@ -12,5 +12,5 @@
 
   <String Id="ExitDialogTitle" Value="{\WixUI_Font_Bigger}Gotowe" />
   <String Id="ExitDialogDescription" Value="Uruchom grę i naciśnij F7, żeby ustawić filtr. Domyślnie ukrywa białe, zielone i niebieskie itemy." />
-  <String Id="ExitNote" Value="Pierwszy start przygotowuje menu modów. Jeśli F7 nie otworzy go od razu, uruchom grę ponownie.&#13;&#10;&#13;&#10;Mody można usunąć w Ustawieniach Windows, w Zainstalowanych aplikacjach." />
+  <String Id="ExitNote" Value="Pierwsze uruchomienie gry przygotowuje menu modów. Gra pokaże wtedy komunikat w prawym górnym rogu: uruchom ją ponownie, a F7 otworzy pełne menu w interfejsie gry.&#13;&#10;&#13;&#10;Mody można usunąć w Ustawieniach Windows, w Zainstalowanych aplikacjach." />
 </WixLocalization>

@@ -1,5 +1,5 @@
 # Installs and removes the MSI on a fake game folder. Never touches the real game.
-param([string]$Msi, [string]$Out)
+param([string]$Msi, [string]$Out, [string]$OldMsi, [string]$NewMod)
 $ErrorActionPreference = 'Continue'
 $base = Join-Path $env:TEMP 'gih_test'
 $fake = Join-Path $base 'Borderlands 4'
@@ -64,6 +64,53 @@ try {
     Check 'registry cleaned' (-not (Test-Path 'HKLM:\Software\GroundItemHider'))
     Check 'real game untouched' ($before -eq (RealHash))
     Say('left: ' + ((Get-ChildItem -LiteralPath $fake -Recurse -File | ForEach-Object { $_.FullName.Substring($fake.Length + 1) }) -join '; '))
+
+    # --- Replacing what's already there ---
+    if ($OldMsi) {
+        $wanted = (Get-FileHash -LiteralPath $NewMod).Hash
+
+        # Files someone copied in by hand, or left by an earlier install of any kind
+        Remove-Item -LiteralPath $fake -Recurse -Force -ErrorAction SilentlyContinue
+        New-Item -ItemType Directory -Force "$fake\OakGame\Binaries\Win64", "$fake\sdk_mods\settings" | Out-Null
+        Set-Content -LiteralPath "$fake\Borderlands4.exe" 'fake'
+        Set-Content -LiteralPath "$fake\sdk_mods\GroundItemHider.sdkmod" 'old'
+        Set-Content -LiteralPath "$fake\sdk_mods\bl4_mod_menu.sdkmod" 'old'
+        Set-Content -LiteralPath "$fake\OakGame\Binaries\Win64\dsound.dll" 'old'
+        Set-Content -LiteralPath "$fake\sdk_mods\settings\GroundItemHider.json" '{"enabled": false, "mine": 1}'
+        $code = Run "/i `"$Msi`" /qn INSTALLFOLDER=`"$fake\`" /l*v `"$base\manual.log`""
+        Check "install over hand-copied files (exit $code)" ($code -eq 0)
+        Check 'replaced the old filter' ((Get-FileHash -LiteralPath "$fake\sdk_mods\GroundItemHider.sdkmod").Hash -eq $wanted)
+        Check 'replaced the old menu' ((Get-Content -LiteralPath "$fake\sdk_mods\bl4_mod_menu.sdkmod" -Raw -ErrorAction SilentlyContinue) -notmatch '^old')
+        Check 'replaced the old dsound.dll' ((Get-Item -LiteralPath "$fake\OakGame\Binaries\Win64\dsound.dll").Length -gt 1000)
+        Check 'kept settings over hand-copied files' ((Get-Content -LiteralPath "$fake\sdk_mods\settings\GroundItemHider.json" -Raw) -match '"mine": 1')
+        $code = Run "/x `"$Msi`" /qn /l*v `"$base\manual_remove.log`""
+        Check "remove after that (exit $code)" ($code -eq 0)
+
+        # Updating from the previous installer, without saying where the game is
+        Remove-Item -LiteralPath $fake -Recurse -Force -ErrorAction SilentlyContinue
+        New-Item -ItemType Directory -Force "$fake\OakGame\Binaries\Win64" | Out-Null
+        Set-Content -LiteralPath "$fake\Borderlands4.exe" 'fake'
+        $code = Run "/i `"$OldMsi`" /qn INSTALLFOLDER=`"$fake\`" /l*v `"$base\old.log`""
+        Check "install the old version (exit $code)" ($code -eq 0)
+        $oldHash = (Get-FileHash -LiteralPath "$fake\sdk_mods\GroundItemHider.sdkmod").Hash
+        Check 'old version is different' ($oldHash -ne $wanted)
+        Set-Content -LiteralPath "$fake\sdk_mods\settings\GroundItemHider.json" '{"enabled": false, "mine": 2}'
+        Set-Content -LiteralPath "$fake\sdk_mods\OtherMod.sdkmod" 'keep'
+        $code = Run "/i `"$Msi`" /qn /l*v `"$base\upgrade.log`""
+        Check "update over it (exit $code)" ($code -eq 0)
+        Check 'update replaced the filter' ((Get-FileHash -LiteralPath "$fake\sdk_mods\GroundItemHider.sdkmod").Hash -eq $wanted)
+        Check 'update found the same folder' ((Get-ItemProperty 'HKLM:\Software\GroundItemHider').InstallFolder -eq "$fake\")
+        Check 'update kept settings' ((Get-Content -LiteralPath "$fake\sdk_mods\settings\GroundItemHider.json" -Raw) -match '"mine": 2')
+        Check 'update kept other mods' (Test-Path -LiteralPath "$fake\sdk_mods\OtherMod.sdkmod")
+        Check 'update kept SDK files' (Test-Path -LiteralPath "$fake\OakGame\Binaries\Win64\Plugins\unrealsdk.dll")
+        $entries = @(Get-ChildItem 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall' | ForEach-Object { Get-ItemProperty $_.PSPath } | Where-Object { $_.DisplayName -like 'Ground Item Hider*' })
+        Check "only one entry in installed apps ($($entries.Count)), version $($entries[0].DisplayVersion)" ($entries.Count -eq 1)
+        $code = Run "/x `"$Msi`" /qn /l*v `"$base\final_remove.log`""
+        Check "final uninstall (exit $code)" ($code -eq 0)
+        Check 'final uninstall left no SDK' (-not (Test-Path -LiteralPath "$fake\OakGame\Binaries\Win64\dsound.dll"))
+        Check 'final uninstall cleaned the registry' (-not (Test-Path 'HKLM:\Software\GroundItemHider'))
+        Check 'real game still untouched' ($before -eq (RealHash))
+    }
 }
 catch { Say("FAIL exception: $_") }
 Say('DONE')

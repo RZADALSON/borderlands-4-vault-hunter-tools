@@ -14,7 +14,7 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw
 
-VERSION = "1.1.1"
+VERSION = "1.3.0"
 VCREDIST_MINOR = "50"  # The oldest Visual C++ runtime which doesn't get replaced
 
 HERE = Path(__file__).resolve().parent
@@ -50,6 +50,7 @@ def make_payload() -> None:
     shutil.copy(VENDOR / "GPL-3.0.txt", licenses / "GPL-3.0.txt")
     shutil.copy(VENDOR / "LGPL-3.0.txt", licenses / "LGPL-3.0.txt")
     shutil.copy(VENDOR / "Python-LICENSE.txt", licenses / "Python-LICENSE.txt")
+    shutil.copy(VENDOR / "bl4-LICENSE.txt", licenses / "bl4-LICENSE.txt")
 
     settings = BUILD / "GroundItemHider.json"
     settings.write_text('{"enabled": true}\n', encoding="utf8")

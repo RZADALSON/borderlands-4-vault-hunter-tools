@@ -12,6 +12,10 @@ Ground Item Hider
   Rozpoznawanie rzadkości jest zaadaptowane z BL4 Loot Filter (Lango, GPL-3.0):
   https://github.com/jlangowells/bl4_loot_filter
 
+  Tabela części firmware pochodzi z bl4 (monokrome, BSD-2-Clause), plik bl4-LICENSE.txt:
+  https://github.com/monokrome/bl4
+  Odczyt serialu itemu oparty na bl4-fix (flameaway, GPL-3.0).
+
 Oak2 Mod Manager v0.3, z unrealsdk i pyunrealsdk (bl-sdk). Licencja LGPL-3.0.
   https://github.com/bl-sdk/oak2-mod-manager
 
