@@ -1,108 +1,77 @@
 # Borderlands 4 Loot Filter
 
-**English:** a loot filter for Borderlands 4 with an MSI installer. Download
-`Borderlands4LootFilter-Setup-*-EN.msi` from [Releases](../../releases), close the game, run it and pick the game's
-folder. Start the game, restart it when it asks you to, then press F7. The filter hides or highlights the items you
-choose, and follows the game's language (Polish or English) unless you pick one under `Język / Language`.
+A loot filter for Borderlands 4. It hides the items you don't care about, or leaves everything on the ground and makes the ones you want stand out. Comes with an installer, so you don't need to set up the Python SDK yourself.
 
-Filtr lootu do Borderlands 4 z instalatorem MSI. Wskazujesz folder gry, a resztę instalator robi sam.
+[Polski opis](README.pl.md)
 
-> **Status:** część funkcji nie była jeszcze sprawdzona w grze: wybór języka i angielskie menu (1.5.0), znaczniki na radarze
-> gry, blokada podnoszenia, wykrywanie wyrzuconych itemów, filtr poziomu i aktualizacja przez ten instalator. Przed instalacją
-> zamknij grę. Starsza wersja zostanie podmieniona, a Twoje ustawienia zostaną.
+## Install
 
-## Co potrafi
+1. Get `Borderlands4LootFilter-Setup-*-EN.msi` from [Releases](../../releases). There's a `-PL` one too, the only difference is the installer's language.
+2. Close the game and run it. Check the game folder it found, or point it at the one with `Borderlands4.exe` in it.
+3. Start the game. The first start prepares the mod menu, and a message in the top right asks you to restart.
+4. Start it again. F7, or MODS in the pause menu, opens the settings.
 
-- **Ukrywanie:** wybrane itemy znikają z ziemi. Nic nie jest usuwane ani przenoszone, więc po wyłączeniu
-  filtra wracają. Filtrować można po rzadkości, firmie, typie i postaci (mody klasowe), a także ukrywać amunicję,
-  zdrowie i inne pickupy.
-  Ukrytych itemów nie da się też podnieść, a to, co sam wyrzucisz z plecaka, zostaje widoczne (obie opcje można wyłączyć).
-- **Radar gry:** znaczniki w kolorach rzadkości na radarze samej gry. Przy ukrywaniu pokazują sprzęt, który jeszcze leży.
-- **Podświetlanie:** wypada wszystko, a wybrane itemy dostają mocniejszy beam i znacznik na radarze.
-- **Poziom i amunicja:** ukrywanie sprzętu poniżej wybranego poziomu oraz amunicji do wybranych broni.
-- **Wybór firmware:** decydujesz, który z 24 zestawów jest zawsze pokazywany lub podświetlany.
-- **Napis `FILTR AKTYWNY`** w prawym górnym rogu, gdy filtr działa. Pokazuje też liczbę ukrytych itemów.
-- **Ustawienia w grze:** F7 otwiera menu po polsku lub angielsku, zależnie od języka gry. Wybór w `Język / Language` zostaje
-  zapisany. F8 chwilowo wstrzymuje filtr.
+Windows SmartScreen may warn you, because the installer isn't signed. The SHA-256 of each file is in the release notes.
 
-Domyślnie ukrywane są itemy białe, zielone i niebieskie. Sprzęt z firmware, anointmentem i shiny zawsze
-zostaje widoczny, chyba że wyłączysz to w opcjach.
+It adds the Python SDK, the filter and BL4 Mod Menu to the game's folder, and the Microsoft Visual C++ Redistributable to Windows if it's missing. It doesn't touch your saves or replace any game files. If you already have an older version, it gets replaced and your settings stay.
 
-## Instalacja
+BL4 Mod Menu checks GitHub for mod updates when the game starts, but doesn't download anything until you click. You can turn that off in its options.
 
-1. Pobierz `Borderlands4LootFilter-Setup-*-PL.msi` z [Releases](../../releases).
-2. Zamknij Borderlands 4 i uruchom instalator.
-3. Sprawdź wykryty folder gry albo wskaż ten z plikiem `Borderlands4.exe`.
-4. Uruchom grę. Pierwszy start przygotowuje menu, a w prawym górnym rogu pojawi się prośba o restart.
-5. Uruchom grę ponownie. Teraz F7 albo pozycja **MODS** w menu pauzy otwiera pełne menu w interfejsie gry.
+## What it does
 
-Instalator nie jest podpisany cyfrowo, więc Windows SmartScreen może pokazać ostrzeżenie. Sumę SHA-256
-pliku znajdziesz w opisie wydania.
+- **Hide mode:** chosen items disappear from the ground. Nothing gets deleted, turn the filter off and they're back. You can filter by rarity, manufacturer, item type and character (for class mods), and hide ammo by weapon, health and other pickups.
+- **Highlight mode:** everything drops as usual, and the items you chose get a much stronger beam and a marker on the radar.
+- **Radar markers** on the game's own radar, in rarity colours. In hide mode they show gear that's still lying around.
+- **Firmware:** you choose which of the 24 sets always stay visible, or get highlighted.
+- **Banner** in the top right while the filter is on, with how many items are hidden and how much gear is left to pick up.
 
-Instalator dodaje do folderu gry Python SDK, filtr i BL4 Mod Menu, a do systemu Microsoft Visual C++
-Redistributable, jeśli go brakuje. Save'y nie są zmieniane, a pliki gry nie są podmieniane.
+Hidden items can't be picked up, and whatever you drop from your backpack stays visible. Both can be turned off.
 
-BL4 Mod Menu przy starcie gry pyta GitHuba o nowe wersje modów, ale niczego nie pobiera bez kliknięcia.
-Można to wyłączyć w jego opcjach.
+White, green and blue items are hidden by default. Gear with firmware, an anointment or the shiny effect always stays visible unless you change that.
 
-## Najczęstsze pytania
+F8 pauses the filter. The menus are in Polish or English, following the language the game runs in. If you pick one under `Język / Language`, that's saved.
 
-**Po instalacji F7 pokazuje prosty panel albo prośbę o restart.** To normalne przy pierwszym uruchomieniu: gra wczytuje
-pliki menu tylko przy starcie. Uruchom ją ponownie.
+## Questions
 
-**Czy można podnieść ukryty item?** Domyślnie nie, bo traci kolizję. Opcja `Blokuj podnoszenie ukrytych` to zmienia.
+**F7 opens a basic panel, or the game asks for a restart.** That's normal after installing, as the game only loads the menu's files when it starts. Restart it.
 
-**Wyrzuciłem item i zniknął.** Wyrzucone z plecaka powinny zostać widoczne (`Pokazuj wyrzucone itemy`). Rozpoznawane są po
-ubytku w plecaku i pojawieniu się itemu w pobliżu, więc to, co odkładasz z wyposażenia, może nie zostać rozpoznane. F8
-pokazuje wszystko.
+**I dropped an item and it vanished.** Drops are spotted by your backpack shrinking and an item turning up next to you, so something you throw down from your equipped gear may not be caught. F8 shows everything.
 
-**Czemu widzę item, który powinien być ukryty?** Najczęściej przez wyjątek: firmware, anointment, shiny albo ochronę
-rzadkości. Wyłączysz je w opcjach.
+**Why can I see an item that should be hidden?** Usually one of the exceptions: firmware, anointment, shiny or rarity protection. You can turn them off.
 
-**Gra dostała patch i coś nie działa.** Log jest w `OakGame\Binaries\Win64\Plugins\unrealsdk.log`. Po patchu SDK może
-wymagać nowej wersji. W razie problemów ze startem gry usuń `OakGame\Binaries\Win64\dsound.dll` lub odinstaluj mod.
+**A game patch broke something.** The log is in `OakGame\Binaries\Win64\Plugins\unrealsdk.log`. The SDK may need a new version after a patch. If the game won't start, uninstall this or delete `OakGame\Binaries\Win64\dsound.dll`.
 
-## Odinstalowanie
+## Uninstall
 
-Ustawienia Windows → Zainstalowane aplikacje → **Borderlands 4 Loot Filter**.
-Twoje ustawienia modów i mody doinstalowane osobno zostają w folderze `sdk_mods`.
+Windows Settings, Installed apps, Borderlands 4 Loot Filter. Your mod settings and any mods you added yourself stay in `sdk_mods`.
 
-Po aktualizacji gry SDK może przestać działać, dopóki nie wyjdzie jego nowa wersja. Jeśli gra zacznie się
-wywalać, odinstaluj mody albo usuń `OakGame\Binaries\Win64\dsound.dll`.
+## Building it
 
-## Budowanie
-
-Potrzebne są Python z Pillow, .NET SDK i .NET Framework 4.7.2 Targeting Pack.
+You need Python with Pillow, the .NET SDK and the .NET Framework 4.7.2 Targeting Pack.
 
 ```bash
 dotnet tool install wix --tool-path installer/tools --version 5.0.2
 python installer/build.py
 ```
 
-Do `installer/vendor/` trzeba najpierw włożyć pliki, których nie ma w repozytorium:
+`installer/vendor/` needs these first, they aren't in the repo:
 
-| Plik | Skąd |
+| File | From |
 |---|---|
 | `oak2-sdk.zip` | [oak2-mod-manager v0.3](https://github.com/bl-sdk/oak2-mod-manager/releases/tag/v0.3) |
 | `bl4_mod_menu.sdkmod` | [bl4-fix v2026.10.29.1](https://github.com/flameaway/bl4-fix/releases/tag/v2026.10.29.1) |
 | `vc_redist.x64.exe` | [Microsoft](https://aka.ms/vs/17/release/vc_redist.x64.exe) |
-| `GPL-3.0.txt`, `LGPL-3.0.txt`, `Python-LICENSE.txt`, `bl4-LICENSE.txt` | teksty licencji |
+| `GPL-3.0.txt`, `LGPL-3.0.txt`, `Python-LICENSE.txt`, `bl4-LICENSE.txt` | licence texts |
 
-## Autorzy i licencje
+## Credits
 
-Kod z tego repozytorium jest na licencji [GPL-3.0](LICENSE). Instalator zawiera też:
+The code here is [GPL-3.0](LICENSE). The installer also carries:
 
-- [Oak2 Mod Manager](https://github.com/bl-sdk/oak2-mod-manager), [unrealsdk](https://github.com/bl-sdk/unrealsdk)
-  i [pyunrealsdk](https://github.com/bl-sdk/pyunrealsdk): bl-sdk, LGPL-3.0.
-- [BL4 Mod Menu](https://github.com/flameaway/bl4-fix): flameaway, GPL-3.0.
-- Python: Python Software Foundation, licencja PSF.
-- Microsoft Visual C++ Redistributable: warunki licencji Microsoftu.
+- [Oak2 Mod Manager](https://github.com/bl-sdk/oak2-mod-manager), [unrealsdk](https://github.com/bl-sdk/unrealsdk) and [pyunrealsdk](https://github.com/bl-sdk/pyunrealsdk) by bl-sdk, LGPL-3.0
+- [BL4 Mod Menu](https://github.com/flameaway/bl4-fix) by flameaway, GPL-3.0, with a scrollbar fix
+- Python, PSF licence
+- Microsoft Visual C++ Redistributable, Microsoft's terms
 
-Odczyt rzadkości z beamu jest zaadaptowany z [BL4 Loot Filter](https://github.com/jlangowells/bl4_loot_filter)
-(Lango, GPL-3.0), który przypisuje oryginalną logikę SlippyCheeze. Palety kolorów i ścieżki itemów porównano
-z [Loot Magnet](https://github.com/max0n4ik/LootMagnet). Na ekrany UMG wskazał wzorzec
-[bl4-fix](https://github.com/flameaway/bl4-fix).
+Reading rarity from the beam is adapted from [BL4 Loot Filter](https://github.com/jlangowells/bl4_loot_filter) by Lango (GPL-3.0), who credits SlippyCheeze for the original logic. Colour palettes and item paths were checked against [Loot Magnet](https://github.com/max0n4ik/LootMagnet). The on-screen widgets follow [bl4-fix](https://github.com/flameaway/bl4-fix). The firmware parts table comes from [bl4](https://github.com/monokrome/bl4) by monokrome (BSD-2-Clause).
 
-Tabela części firmware pochodzi z [bl4](https://github.com/monokrome/bl4) (monokrome, BSD-2-Clause).
-
-Projekt nieoficjalny, niezwiązany z Gearbox ani 2K. Oprogramowanie jest dostarczane bez żadnej gwarancji.
+Not affiliated with Gearbox or 2K. No warranty.
