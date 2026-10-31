@@ -36,7 +36,7 @@ Pokazuje DPS, sumę obrażeń, czas walki, udział krytyków, najlepsze trafieni
 - **Liczenie DPS:** cała walka, czyli wszystkie obrażenia podzielone przez czas od pierwszego do ostatniego trafienia, albo tylko ostatnie 1 do 60 sekund.
 - **Reset licznika:** domyślnie 5 sekund po ostatnim trafieniu, można ustawić od 1 do 60 sekund albo resetować tylko klawiszem F6. Gra nie jest pytana, czy wrogowie są w pobliżu, liczy się tylko to, kiedy kogoś ostatnio trafiłeś.
 - **Obrażenia w czasie** i **obrażenia towarzyszy** są domyślnie liczone.
-- **Wygląd licznika:** cztery style (domyślnie jak HUD gry, kompaktowy, sam tekst i neon), co pokazuje, gdzie stoi i jak jest duży.
+- **Wygląd licznika:** pięć stylów (domyślnie same liczby, czyli tylko pochylone niebieskie liczby jak obrażenia w grze, poza tym panel jak HUD gry, kompaktowy, sam tekst i neon), co pokazuje, gdzie stoi i jak jest duży.
 
 Liczy tylko Twoje obrażenia. Działa solo i u hosta. Gościom w co-opie gra nie podaje obrażeń, więc licznik zostaje na zerze i mówi dlaczego.
 

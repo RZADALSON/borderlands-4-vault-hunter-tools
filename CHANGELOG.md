@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.1.0
+
+- New meter style, `Numbers only`, and it's now the default: slanted blue numbers like the game's damage numbers, with a soft glow, slightly see-through, with no background or words. It shows your DPS with the total under it, and `Details` turns the total off. The meter's style goes back to the default once.
+- The meter's panel is a third narrower. Its labels are shorter, and the last fight's line no longer lists kills.
+- The meter sits a little lower by default. Its height goes back to the new default once.
+- The installer also removes the old DPS meter if it was copied in by hand.
+
 ## 2.0.0
 
 - The DPS meter is now part of this app, under `DPS meter` in its settings. Installing this removes the separate Borderlands 4 DPS Meter. The meter's settings go back to their defaults once.

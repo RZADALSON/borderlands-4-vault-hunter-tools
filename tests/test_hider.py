@@ -119,7 +119,7 @@ mod = mods_base.mod_list.mod_list[-1]
 m.set_game_language("pl")
 check("mod name", mod.name, "Vault Hunter Tools")
 check("coop support", mod.coop_support.name, "ClientSide")
-check("version", mod.version, "2.0")
+check("version", mod.version, "2.1")
 check("hooks found", "/Script/Engine.CameraModifier:BlueprintModifyCamera" in [h.hook_funcs[0][0] for h in mod.hooks], True)
 check("keybinds", sorted(k.identifier for k in mod.keybinds), ["Print Loot Info", "Reset Meter", "Switch Filter Mode", "Toggle Item Hiding"])
 check("toggle key", next(k.key for k in mod.keybinds if k.identifier == "Toggle Item Hiding"), "F8")

@@ -38,7 +38,7 @@ Shows your DPS, total damage, fight time, share of crit damage, best hit, kills 
 - **DPS calculation:** the whole fight, which is all your damage divided by the time from your first hit to your last, or only the last 1 to 60 seconds.
 - **Meter reset:** 5 seconds after your last hit by default, from 1 to 60 seconds, or only with F6. The game isn't asked if enemies are nearby, all that matters is when you last hit one.
 - **Damage over time** and **companion damage** count by default.
-- **Meter display:** four styles (like the game's HUD by default, compact, text only and neon), what it shows, where it sits and how big it is.
+- **Meter display:** five styles (by default numbers only, which leaves just slanted blue numbers like the game's damage numbers, then a panel like the game's HUD, compact, text only and neon), what it shows, where it sits and how big it is.
 
 It only counts your own damage. It works solo and when you're hosting. The game doesn't tell co-op guests about damage, so for a guest it stays at zero and says why.
 

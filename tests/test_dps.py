@@ -52,7 +52,7 @@ class W:
     made = []
     def __init__(self, cls, outer=None, name=None):
         self.cls, self.outer, self.name, self.calls, self.in_viewport = cls, outer, name, [], False
-        self.Font = types.SimpleNamespace(Size=0); self.Slot = None; self.children = []; W.made.append(self)
+        self.Font = types.SimpleNamespace(Size=0, OutlineSettings=types.SimpleNamespace(OutlineSize=0, OutlineColor=None)); self.Slot = None; self.children = []; W.made.append(self)
     def AddChild(self, c): c.Slot = W("slot"); self.children.append(c)
     def AddToViewport(self, z): self.in_viewport = True; self.z = z
     def RemoveFromParent(self): self.in_viewport = False
@@ -91,7 +91,7 @@ def near(label, got, want):
     check(label, abs(got - want) < 1e-6, True) if abs(got - want) < 1e-6 else check(label, got, want)
 
 mod = mods_base.mod_list.mod_list[-1]
-check("name", mod.name, "Vault Hunter Tools"); check("version", mod.version, "2.0"); check("coop", mod.coop_support.name, "ClientSide")
+check("name", mod.name, "Vault Hunter Tools"); check("version", mod.version, "2.1"); check("coop", mod.coop_support.name, "ClientSide")
 check("reset key", "Reset Meter" in [k.identifier for k in mod.keybinds], True)
 check("reset key", next(k.key for k in mod.keybinds if k.identifier == "Reset Meter"), "F6")
 check("damage and both ticks hooked", sorted(h.hook_funcs[0][0] for h in mod.hooks), sorted([m.native.FUNC_PATH, "/Script/Engine.CameraModifier:BlueprintModifyCamera", "/Script/Engine.CameraModifier:BlueprintModifyCamera"]))
@@ -181,22 +181,23 @@ m.check_binding(THE_PC)
 
 # --- The window ----------------------------------------------------------------------------------
 app.language_option.value = app.POLISH
+check("numbers only by default", m.window_style.key, m.STYLE_NUMBERS); m.window_style.value = m.STYLE_GAME
 W.made.clear(); m.remove_window(); m.check_window(THE_PC); widget = m.window_widget()
 check("on screen", widget.in_viewport, True); check("owned by the player", m.window_owner(), THE_PC)
 check("doesn't take input", ("SetVisibility", (m.HIT_TEST_INVISIBLE,)) in widget.calls, True)
 place = next(w for w in W.made if w.cls == "slot" and any(c[0] == "SetAnchors" for c in w.calls))
-anchors = dict(place.calls)["SetAnchors"][0]; check("default place, under the radar", (anchors.Minimum.X, anchors.Minimum.Y), (0.985, 0.26))
+anchors = dict(place.calls)["SetAnchors"][0]; check("default place, under the radar", (anchors.Minimum.X, anchors.Minimum.Y), (0.985, 0.3))
 check("stays inside the screen", dict(place.calls)["SetAlignment"][0], anchors.Minimum)
 count = len(W.made); m.check_window(THE_PC); check("not built twice", len(W.made), count)
 m.damage.clear(); m.damage.last_fight = None; m.update_window_text(0.0)
 said = lambda label: [c[1][0] for c in label.calls if c[0] == "SetText"]
-check("main line", said(m.main_label)[-1], "0"); check("details", said(m.details_label)[-1], "RAZEM 0 | CZAS 00:00\nKRYTYKI 0% | NAJLEPSZE 0 | ZABÓJSTWA 0")
+check("main line", said(m.main_label)[-1], "0"); check("details", said(m.details_label)[-1], "RAZEM 0 | CZAS 00:00\nKRYT. 0% | MAX 0 | ZAB. 0")
 before = len(m.main_label.calls); m.update_window_text(0.0); check("no needless updates", len(m.main_label.calls), before)
 m.damage.mode = meter.MODE_FIGHT; m.damage.add(0.0, 5000.0, crit=True, kill=True); m.damage.add(2.0, 15000.0); m.update_window_text(2.0)
-check("numbers show", said(m.main_label)[-1], "10.0K"); check("details show", said(m.details_label)[-1], "RAZEM 20.0K | CZAS 00:02\nKRYTYKI 25% | NAJLEPSZE 15.0K | ZABÓJSTWA 1")
-m.damage.reset(); m.update_window_text(3.0); check("after a reset", said(m.main_label)[-1], "0"); check("last fight stays", said(m.details_label)[-1].split("\n")[-1], "OSTATNIA WALKA: 10.0K DPS | 20.0K | 00:02 | ZABÓJSTWA 1")
-app.language_option.value = app.ENGLISH; m.update_window_text(3.0); check("English", said(m.details_label)[-1].split("\n")[-1], "LAST FIGHT: 10.0K DPS | 20.0K | 00:02 | KILLS 1")
-m.show_last_fight.value = False; m.update_window_text(3.0); check("last fight can go", "LAST FIGHT" in said(m.details_label)[-1], False); m.show_last_fight.value = True
+check("numbers show", said(m.main_label)[-1], "10.0K"); check("details show", said(m.details_label)[-1], "RAZEM 20.0K | CZAS 00:02\nKRYT. 25% | MAX 15.0K | ZAB. 1")
+m.damage.reset(); m.update_window_text(3.0); check("after a reset", said(m.main_label)[-1], "0"); check("last fight stays", said(m.details_label)[-1].split("\n")[-1], "OSTATNIA 10.0K DPS | 20.0K | 00:02")
+app.language_option.value = app.ENGLISH; m.update_window_text(3.0); check("English", said(m.details_label)[-1].split("\n")[-1], "LAST 10.0K DPS | 20.0K | 00:02")
+m.show_last_fight.value = False; m.update_window_text(3.0); check("last fight can go", "LAST " in said(m.details_label)[-1], False); m.show_last_fight.value = True
 m.show_details.value = False; m.show_last_fight.value = False; m.listen_failed = False; m.is_guest = False; m.update_window_text(3.0); check("details off, hidden", (said(m.details_label)[-1], dict(m.details_label.calls)["SetVisibility"]), ("", (m.COLLAPSED,)))
 m.show_details.value = True; m.show_last_fight.value = True
 m.listen_failed = True; check("says when a patch broke it", m.details_text(0.0).split("\n")[0], "GAME PATCHED: THE METER IS WAITING FOR AN UPDATE"); m.listen_failed = False
@@ -208,7 +209,6 @@ m.show_window.value = False; m.check_window(THE_PC); check("can be turned off", 
 m.check_window(None); check("no player, no window", m.window_widget(), None); menu_pc = types.SimpleNamespace(Pawn=None); m.check_window(THE_PC); m.check_window(menu_pc); check("not in the main menu", m.window_widget(), None); m.check_window(THE_PC)
 
 # --- Styles --------------------------------------------------------------------------------------
-check("looks like the game by default", m.window_style.key, m.STYLE_GAME)
 check("every choice has a look", sorted(m.window_style.labels), sorted(m.WINDOW_STYLES))
 near("colours turned linear, like the filter's text", m.GAME_TEXT[0], m.linear("#e4d9ce")[0]); check("matches the game's text colour", tuple(round(v, 2) for v in m.GAME_TEXT[:3]), (0.78, 0.69, 0.62))
 check("black and white stay", (m.linear("#000000")[:3], m.linear("#ffffff")[:3]), ((0.0, 0.0, 0.0), (1.0, 1.0, 1.0)))
@@ -218,13 +218,32 @@ def build(style):
     shadows = sum(c[0] == "SetShadowOffset" for w in W.made for c in w.calls)
     return types.SimpleNamespace(built=bool(W.made), colors=colors, shadows=shadows, main=dict(m.main_label.calls)["SetColorAndOpacity"][0].SpecifiedColor)
 m.damage.clear(); m.damage.last_fight = None
-got = build(m.STYLE_COMPACT); check("changing style rebuilds", got.built, True); check("compact has no line", len(got.colors), 1); check("compact on one line", m.details_text(0.0), "RAZEM 0 | CZAS 00:00 | KRYTYKI 0% | NAJLEPSZE 0 | ZABÓJSTWA 0" if app.shown_language == "pl" else "TOTAL 0 | TIME 00:00 | CRITS 0% | BEST 0 | KILLS 0")
+got = build(m.STYLE_COMPACT); check("changing style rebuilds", got.built, True); check("compact has no line", len(got.colors), 1); check("compact on one line", m.details_text(0.0), "RAZEM 0 | CZAS 00:00 | KRYT. 0% | MAX 0 | ZAB. 0" if app.shown_language == "pl" else "TOTAL 0 | TIME 00:00 | CRITS 0% | BEST 0 | KILLS 0")
 got = build(m.STYLE_MINIMAL); check("text only has a clear background", got.colors[0].A, 0.0); check("and a shadow on both texts", got.shadows, 2); check("not in capitals", m.details_text(0.0).split(" ")[0] in ("Razem", "Total"), True)
 got = build(m.STYLE_NEON); check("neon has a line", len(got.colors), 2); check("neon main colour", got.main.G, m.GAME_CYAN[1]); check("neon has no shadow", got.shadows, 0)
 got = build(m.STYLE_GAME); check("game has orange ends", got.colors.count(next(c for c in got.colors if c.R == m.GAME_ORANGE[0])) >= 1, True); check("on the HUD's blue", any(c.A == m.HUD_PANEL[3] for c in got.colors), True); check("game has no shadow", got.shadows, 0)
 check("no tilt", any(n == "SetRenderShear" for w in W.made for n, _ in w.calls), False)
+def widest():
+    m.damage.clear(); m.damage.last_fight = meter.FightSummary(3280000.0, 123490000.0, 37.0, 12); m.damage.total = 123490000.0; m.damage.crit = 55000000.0; m.damage.biggest = 12340000.0; m.damage.kills = 12
+    width = max(len(line) for line in m.details_text(0.0).split("\n")); m.damage.clear(); m.damage.last_fight = None; return width
+check("a third narrower, even with big numbers", widest() <= 36, True); app.language_option.value = app.ENGLISH; check("in English too", widest() <= 36, True)
+got = build(m.STYLE_NUMBERS); shear = dict(next(w for w in W.made if any(c[0] == "SetRenderShear" for c in w.calls)).calls)["SetRenderShear"][0]; check("numbers lean forward and rise", (shear.X, shear.Y), (-m.NUMBERS_SLANT, -m.NUMBERS_RISE))
+def height(): return dict(next(w for w in W.made if w.cls == "slot" and any(c[0] == "SetAnchors" for c in w.calls)).calls)["SetAnchors"][0].Minimum.Y
+check("numbers sit lower than the panel", round(height(), 2), 0.38); m.window_y.value = 100.0; W.made.clear(); m.check_window(THE_PC); check("but stay on screen", height(), 1.0); m.window_y.value = m.window_y.default_value; W.made.clear(); m.check_window(THE_PC)
+check("numbers have a clear background", got.colors[0].A, 0.0); lines = got.colors[1:]; check("thin lines for texture, nothing else", (len(lines) > 5, {c.A for c in lines}), (True, {m.NUMBERS_LINES_COLOR[3]}))
+box = next(w for w in W.made if any(c[0] == "SetRenderShear" for c in w.calls)); check("slightly see-through", dict(box.calls)["SetRenderOpacity"], (m.NUMBERS_OPACITY,))
+check("glow behind both", (len(m.main_glow), len(m.details_glow)), (len(m.NUMBERS_MAIN_GLOW), len(m.NUMBERS_DETAILS_GLOW))); check("glow's outline", m.main_glow[0].Font.OutlineSettings.OutlineSize, m.NUMBERS_MAIN_GLOW[0][0])
+m.update_window_text(0.0); check("glow says the same", [c[1][0] for c in m.main_glow[1].calls if c[0] == "SetText"][-1], [c[1][0] for c in m.main_label.calls if c[0] == "SetText"][-1])
+check("blue", got.main.G, m.NUMBERS_BLUE[1]); check("and a shadow", got.shadows, 2)
+check("big number's bigger", next(c[1][0] for c in m.main_label.calls if c[0] == "SetFont").Size, int(m.font_size.value * 1.9)); check("outlined", m.main_label.Font.OutlineSettings.OutlineSize, m.NUMBERS_OUTLINE); check("to the edge of the screen", dict(m.main_label.calls)["SetJustification"], (m.JUSTIFY_RIGHT,))
+m.damage.clear(); m.damage.last_fight = None; m.damage.add(0.0, 5000.0, crit=True, kill=True); m.damage.add(2.0, 15000.0)
+check("only a number up top", m.main_text(2.0), "10.0K"); check("only the total below", m.details_text(2.0), "20.0K"); m.damage.reset(); check("no last fight", m.details_text(3.0), "0"); check("its switch greys here", m.show_last_fight.greyed_when(), True)
+m.show_details.value = False; check("total can go", m.details_text(3.0), ""); m.show_details.value = True
+m.is_guest = True; check("still says why it's zero", m.details_text(3.0).split("\n")[0], "AS A CO-OP GUEST, THE GAME DOESN'T REPORT DAMAGE"); m.is_guest = False
+m.window_x.value = 10.0; W.made.clear(); m.check_window(THE_PC); check("not pushed right on the left", any(c[0] == "SetJustification" for c in m.main_label.calls), False); m.window_x.value = m.window_x.default_value
+m.damage.clear(); m.damage.last_fight = None; got = build(m.STYLE_GAME); check("last fight switch back in the other styles", m.show_last_fight.greyed_when(), False)
 W.made.clear(); m.check_window(THE_PC); check("same style, not rebuilt", W.made, [])
-m.window_style.value = "Sam tekst"; check("style by its text", m.window_style.key, m.STYLE_MINIMAL); app.language_option.value = app.ENGLISH; check("reads in English", m.window_style.value, "Text only"); m.window_style.value = m.STYLE_GAME; check("default again", m.window_style.value, "Like the game")
+m.window_style.value = "Sam tekst"; check("style by its text", m.window_style.key, m.STYLE_MINIMAL); app.language_option.value = app.ENGLISH; check("reads in English", m.window_style.value, "Text only"); m.window_style.value = m.STYLE_GAME; check("and by its key", m.window_style.value, "Like the game")
 
 # --- The frame hook, settings reaching the counting ------------------------------------------------
 tick = m.on_tick

@@ -16,7 +16,7 @@ from PIL import Image, ImageDraw
 
 from patch_menu import patch_sdkmod
 
-VERSION = "2.0.0"
+VERSION = "2.1.0"
 # Windows picks a language for an MSI when it's built, so each language gets its own file
 LANGUAGES = (
     ("PL", "pl-PL", "1045", "1250"),

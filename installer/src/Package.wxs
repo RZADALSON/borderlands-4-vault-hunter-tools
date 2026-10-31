@@ -42,6 +42,7 @@
       <ComponentRef Id="CleanUpMenuPages" />
       <ComponentRef Id="CleanUpSdkLog" />
       <ComponentRef Id="CleanUpPythonCache" />
+      <ComponentRef Id="CleanUpOldMeter" />
     </Feature>
 
     <Binary Id="GameFolderActions" SourceFile="$(CaDll)" />
@@ -127,6 +128,12 @@
       <RemoveFile Id="RemovePythonCacheFiles" Name="*" On="uninstall" />
       <RemoveFolder Id="RemovePythonCacheFolder" On="uninstall" />
       <RemoveFolder Id="RemoveKeybindsFolder" Directory="KeybindsFolder" On="uninstall" />
+    </Component>
+
+    <!-- The old meter, if it was copied in by hand so Windows doesn't know about it. Two meters would fight. -->
+    <Component Id="CleanUpOldMeter" Directory="SdkModsFolder" Guid="5D3B8E17-A2C4-4F60-9E71-B04C6F2D8A39" Bitness="always64">
+      <RegistryValue Root="HKLM" Key="Software\GroundItemHider" Name="CleanUpOldMeter" Type="integer" Value="1" KeyPath="yes" />
+      <RemoveFile Id="RemoveOldMeterMod" Name="Bl4DpsMeter.sdkmod" On="install" />
     </Component>
 
     <WixVariable Id="WixUIBannerBmp" Value="$(BannerBmp)" />

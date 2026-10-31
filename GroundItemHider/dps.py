@@ -98,12 +98,18 @@ show_window = label(
 show_details = label(
     BoolOption("Show Details", True),
     ("Szczegóły", "Details"),
-    ("Suma obrażeń, czas, krytyki, najlepsze trafienie i zabójstwa.", "Total damage, time, crits, best hit and kills."),
+    (
+        "Suma obrażeń, czas, krytyki, najlepsze trafienie i zabójstwa. W stylu Same liczby: tylko suma.",
+        "Total damage, time, crits, best hit and kills. In the Numbers only style: just the total.",
+    ),
 )
 show_last_fight = label(
     BoolOption("Show Last Fight", True),
     ("Ostatnia walka", "Last fight"),
-    ("Wynik poprzedniej walki pod licznikiem.", "The previous fight's result under the meter."),
+    (
+        "Wynik poprzedniej walki pod licznikiem. Nie w stylu Same liczby.",
+        "The previous fight's result under the meter. Not in the Numbers only style.",
+    ),
 )
 window_x = label(
     SliderOption(identifier="Window X", value=98.5, min_value=0.0, max_value=100.0, step=0.5, is_integer=False),
@@ -111,7 +117,7 @@ window_x = label(
     ("0 to lewa krawędź ekranu, 100 prawa.", "0 is the left edge of the screen, 100 the right."),
 )
 window_y = label(
-    SliderOption(identifier="Window Y", value=26.0, min_value=0.0, max_value=100.0, step=0.5, is_integer=False),
+    SliderOption(identifier="Window From Top", value=30.0, min_value=0.0, max_value=100.0, step=0.5, is_integer=False),
     ("Pozycja w pionie", "Vertical position"),
     ("0 to góra ekranu, 100 dół.", "0 is the top of the screen, 100 the bottom."),
 )
@@ -124,29 +130,32 @@ STYLE_GAME = "game"
 STYLE_COMPACT = "compact"
 STYLE_MINIMAL = "minimal"
 STYLE_NEON = "neon"
+STYLE_NUMBERS = "numbers"
 window_style = label(
     localized_spinner(
-        "Window Style",
-        STYLE_GAME,
+        "Meter Style",
+        STYLE_NUMBERS,
         {
             STYLE_GAME: ("Jak w grze", "Like the game"),
             STYLE_COMPACT: ("Kompaktowy", "Compact"),
             STYLE_MINIMAL: ("Sam tekst", "Text only"),
             STYLE_NEON: ("Neon", "Neon"),
+            STYLE_NUMBERS: ("Same liczby", "Numbers only"),
         },
     ),
     ("Styl", "Style"),
     (
         "Jak w grze: kolory interfejsu gry. Kompaktowy: to samo, ale szczegóły w jednej linii."
-        " Sam tekst: bez tła. Neon: jasne kolory.",
+        " Sam tekst: bez tła. Neon: jasne kolory. Same liczby: pochylone, lekko świecące liczby jak obrażenia w grze, bez tła i opisów.",
         "Like the game: the game's interface colours. Compact: the same, with the details on one line."
-        " Text only: no background. Neon: bright colours.",
+        " Text only: no background. Neon: bright colours. Numbers only: slanted, softly glowing numbers like the game's damage numbers, no background or words.",
     ),
 )
 RELOAD_OPTIONS = (window_x, window_y, font_size)
 WINDOW_OPTIONS = (window_style, show_details, show_last_fight, window_x, window_y, font_size)
 for option in WINDOW_OPTIONS:
     option.greyed_when = lambda: not show_window.value
+show_last_fight.greyed_when = lambda: not show_window.value or window_style.key == STYLE_NUMBERS
 
 # --- What the game tells us -----------------------------------------------------------------------
 HOSTILE = 2  # ETeamAttitude
@@ -308,6 +317,22 @@ COLLAPSED = 1
 SHADOW_COLOR = (0.0, 0.0, 0.0, 0.9)
 SHADOW_OFFSET = 1.5
 ONE_LINE_SEPARATOR = " | "
+NUMBERS_SLANT = 12.0  # Degrees, leaning forward like italics
+NUMBERS_RISE = 5.0  # Degrees, going up to the right
+NUMBERS_OUTLINE = 2
+NUMBERS_OPACITY = 0.88
+# (Outline size, opacity), from the outside in. Copies of the text behind it, as UMG has no glow of its own.
+NUMBERS_MAIN_GLOW = ((7, 0.14), (4, 0.22))
+NUMBERS_DETAILS_GLOW = ((3, 0.2),)
+# Text can't take a texture without a material from the game, so thin lines cross the big number instead
+NUMBERS_LINE_GAP = 3.0
+NUMBERS_LINES_COLOR = (0.0, 0.0, 0.0, 0.12)
+NUMBERS_LINE_HEIGHT = 1.3  # Times the font size, about how tall a line of text is
+HALIGN_FILL = 0  # EHorizontalAlignment
+HALIGN_LEFT = 1
+HALIGN_RIGHT = 3
+NUMBERS_LOWER_BY = 8.0  # Percent of the screen, it needs more room from the radar than a panel does
+JUSTIFY_RIGHT = 2  # ETextJustify
 
 
 def linear(srgb: str, alpha: float = 1.0) -> tuple[float, float, float, float]:
@@ -332,6 +357,9 @@ class WindowStyle:
     one_line: bool = False
     shadow: bool = False
     panel: bool = False  # Built like the game's own HUD panels
+    numbers_only: bool = False  # Slanted numbers with no words, like the game's damage numbers
+    main_scale: float = 1.0
+    lower_by: float = 0.0
 
 
 # The game's interface colours, as the Carnage Report takes them from its stylesheets
@@ -341,6 +369,9 @@ GAME_LIGHT_ORANGE = linear("#ffb55c")
 GAME_TEXT = linear("#e4d9ce")
 GAME_CYAN = linear("#00c6ff")
 WHITE = linear("#ffffff")
+NUMBERS_BLUE = linear("#2fb4ff")
+NUMBERS_LIGHT_BLUE = linear("#bfe6ff")
+NUMBERS_EDGE = linear("#06243a")
 # Picked from the health and ammo panels on the HUD
 HUD_PANEL = linear("#0a324b", 0.82)
 HUD_TILE = linear("#0f5a70", 0.92)
@@ -355,14 +386,17 @@ WINDOW_STYLES = {
     STYLE_COMPACT: WindowStyle(GAME_DARK, None, GAME_LIGHT_ORANGE, GAME_TEXT, capitals=True, one_line=True),
     STYLE_MINIMAL: WindowStyle(None, None, WHITE, GAME_TEXT, shadow=True),
     STYLE_NEON: WindowStyle((0.0, 0.0, 0.0, 0.7), GAME_CYAN, GAME_CYAN, WHITE),
+    STYLE_NUMBERS: WindowStyle(
+        None, None, NUMBERS_BLUE, NUMBERS_LIGHT_BLUE, capitals=True, shadow=True, numbers_only=True, main_scale=1.9, lower_by=NUMBERS_LOWER_BY,
+    ),
 }
 
 TEXT_TOTAL: Text = ("Razem", "Total")
 TEXT_TIME: Text = ("Czas", "Time")
-TEXT_CRITS: Text = ("Krytyki", "Crits")
-TEXT_BEST: Text = ("Najlepsze", "Best")
-TEXT_KILLS: Text = ("Zabójstwa", "Kills")
-TEXT_LAST_FIGHT: Text = ("Ostatnia walka", "Last fight")
+TEXT_CRITS: Text = ("Kryt.", "Crits")
+TEXT_BEST: Text = ("Max", "Best")
+TEXT_KILLS: Text = ("Zab.", "Kills")
+TEXT_LAST_FIGHT: Text = ("Ostatnia", "Last")
 TEXT_GUEST: Text = ("Jako gość co-op gra nie podaje obrażeń", "As a co-op guest, the game doesn't report damage")
 TEXT_NOT_LISTENING: Text = ("Patch gry: licznik czeka na aktualizację", "Game patched: the meter is waiting for an update")
 
@@ -372,6 +406,8 @@ window_layout: tuple[Any, ...] = ()
 window_hidden: bool = False
 main_label: UObject | None = None
 details_label: UObject | None = None
+main_glow: list[UObject] = []
+details_glow: list[UObject] = []
 main_shown: str = ""
 details_shown: str = ""
 last_widget_check: float = 0.0
@@ -385,7 +421,8 @@ def current_style() -> WindowStyle:
 def main_text(now: float) -> str:
     """Gets the big line of the window."""
     number = meter.format_number(damage.dps(now))
-    return number if current_style().panel else f"DPS {number}"
+    style = current_style()
+    return number if style.panel or style.numbers_only else f"DPS {number}"
 
 
 def details_text(now: float) -> str:
@@ -395,7 +432,11 @@ def details_text(now: float) -> str:
         lines.append(say(TEXT_NOT_LISTENING))
     elif is_guest:
         lines.append(say(TEXT_GUEST))
-    if show_details.value:
+    style = current_style()
+    if style.numbers_only:
+        if show_details.value:
+            lines.append(meter.format_number(damage.total))
+    elif show_details.value:
         crit_share = 100.0 * damage.crit / damage.total if damage.total else 0.0
         lines.append(
             f"{say(TEXT_TOTAL)} {meter.format_number(damage.total)} | {say(TEXT_TIME)} {meter.format_time(damage.duration(now))}",
@@ -405,12 +446,11 @@ def details_text(now: float) -> str:
             f" | {say(TEXT_KILLS)} {damage.kills}",
         )
     last = damage.last_fight
-    if show_last_fight.value and last is not None:
+    if show_last_fight.value and last is not None and not style.numbers_only:
         lines.append(
-            f"{say(TEXT_LAST_FIGHT)}: {meter.format_number(last.dps)} DPS"
-            f" | {meter.format_number(last.total)} | {meter.format_time(last.duration)} | {say(TEXT_KILLS)} {last.kills}",
+            f"{say(TEXT_LAST_FIGHT)} {meter.format_number(last.dps)} DPS"
+            f" | {meter.format_number(last.total)} | {meter.format_time(last.duration)}",
         )
-    style = current_style()
     text = (ONE_LINE_SEPARATOR if style.one_line else "\n").join(lines)
     return text.upper() if style.capitals else text
 
@@ -448,18 +488,31 @@ def new_text(tree: UObject, size: int, color: tuple[float, float, float, float],
     return text
 
 
+def dress_number(text: UObject, on_right: bool, outline: int, color: tuple[float, float, float, float]) -> None:
+    """Gives the text an outline, and keeps its lines to the edge of the screen."""
+    try:
+        font_info = text.Font
+        font_info.OutlineSettings.OutlineSize = outline
+        font_info.OutlineSettings.OutlineColor = linear_color(color)
+        text.SetFont(font_info)
+        if on_right:
+            text.SetJustification(JUSTIFY_RIGHT)
+    except Exception:  # noqa: BLE001
+        pass  # The shadow still keeps it readable
+
+
 def wanted_layout() -> tuple[Any, ...]:
     """Gets what the window gets built from, it needs building again if any of this changes."""
     return (window_style.key, *(float(option.value) for option in RELOAD_OPTIONS))
 
 
-def new_line(tree: UObject, color: tuple[float, float, float, float], length: float = 1.0) -> UObject:
+def new_line(tree: UObject, color: tuple[float, float, float, float], length: float = 1.0, width: float = HUD_LINE_WIDTH) -> UObject:
     """Creates a thin coloured line."""
     line = new_widget("/Script/UMG.Border", tree)
     line.SetBrushColor(linear_color(color))
     line.SetPadding(make_struct("Margin", Left=0.0, Top=0.0, Right=0.0, Bottom=0.0))
     spacer = new_widget("/Script/UMG.Spacer", tree)
-    spacer.SetSize(make_struct("Vector2D", X=length, Y=HUD_LINE_WIDTH))
+    spacer.SetSize(make_struct("Vector2D", X=length, Y=width))
     line.SetContent(spacer)
     return line
 
@@ -502,7 +555,7 @@ def build_panel(tree: UObject, column: UObject, style: WindowStyle, on_right: bo
 
     values = new_widget("/Script/UMG.Border", tree)
     values.SetBrushColor(linear_color(HUD_PANEL))
-    values.SetPadding(make_struct("Margin", Left=12.0, Top=2.0, Right=14.0, Bottom=5.0))
+    values.SetPadding(make_struct("Margin", Left=10.0, Top=2.0, Right=10.0, Bottom=5.0))
     row.AddChild(values)
     fill_width(values)
     stack = new_widget("/Script/UMG.VerticalBox", tree)
@@ -513,6 +566,61 @@ def build_panel(tree: UObject, column: UObject, style: WindowStyle, on_right: bo
     stack.AddChild(details)
 
     column.AddChild(new_panel_edge(tree, on_right))
+    return main, details
+
+
+def new_glowing_text(
+    tree: UObject,
+    overlay: UObject,
+    size: int,
+    color: tuple[float, float, float, float],
+    glow: tuple[tuple[int, float], ...],
+    on_right: bool,
+) -> tuple[UObject, list[UObject]]:
+    """Adds a number with its glow behind it to an overlay. Returns the number and the glow's copies."""
+    copies = []
+    for outline, opacity in glow:
+        tint = (*NUMBERS_BLUE[:3], opacity)
+        copy = new_text(tree, size, tint, False)
+        dress_number(copy, on_right, outline, tint)
+        overlay.AddChild(copy)
+        copy.Slot.SetHorizontalAlignment(HALIGN_FILL)
+        copies.append(copy)
+    text = new_text(tree, size, color, True)
+    dress_number(text, on_right, NUMBERS_OUTLINE, NUMBERS_EDGE)
+    overlay.AddChild(text)
+    text.Slot.SetHorizontalAlignment(HALIGN_FILL)
+    return text, copies
+
+
+def new_texture_lines(tree: UObject, size: int) -> UObject:
+    """Creates the thin lines crossing the big number."""
+    lines = new_widget("/Script/UMG.VerticalBox", tree)
+    for _ in range(int(size * NUMBERS_LINE_HEIGHT / (1.0 + NUMBERS_LINE_GAP))):
+        line = new_line(tree, NUMBERS_LINES_COLOR, width=1.0)
+        lines.AddChild(line)
+        line.Slot.SetPadding(make_struct("Margin", Left=0.0, Top=0.0, Right=0.0, Bottom=NUMBERS_LINE_GAP))
+    return lines
+
+
+def build_numbers(tree: UObject, column: UObject, style: WindowStyle, on_right: bool) -> tuple[UObject, UObject]:
+    """Lays out the numbers only style. Returns its main and details texts."""
+    global main_glow, details_glow  # noqa: PLW0603
+
+    main_size = int(font_size.value * style.main_scale)
+    # Only as wide as the number, so the lines don't run past it
+    big = new_widget("/Script/UMG.Overlay", tree)
+    column.AddChild(big)
+    big.Slot.SetHorizontalAlignment(HALIGN_RIGHT if on_right else HALIGN_LEFT)
+    main, main_glow = new_glowing_text(tree, big, main_size, style.main, NUMBERS_MAIN_GLOW, on_right)
+    lines = new_texture_lines(tree, main_size)
+    big.AddChild(lines)
+    lines.Slot.SetHorizontalAlignment(HALIGN_FILL)
+
+    small = new_widget("/Script/UMG.Overlay", tree)
+    column.AddChild(small)
+    details_size = max(8, int(font_size.value * DETAILS_FONT_RATIO))
+    details, details_glow = new_glowing_text(tree, small, details_size, style.details, NUMBERS_DETAILS_GLOW, on_right)
     return main, details
 
 
@@ -539,7 +647,7 @@ def build_window(pc: UObject) -> None:
     canvas.AddChild(box)
 
     # Anchored by its own matching point, so it stays on screen wherever it's put
-    place = make_struct("Vector2D", X=window_x.value / 100.0, Y=window_y.value / 100.0)
+    place = make_struct("Vector2D", X=window_x.value / 100.0, Y=min(window_y.value + style.lower_by, 100.0) / 100.0)
     slot = box.Slot
     slot.SetAnchors(make_struct("Anchors", Minimum=place, Maximum=place))
     slot.SetAlignment(place)
@@ -562,7 +670,11 @@ def build_window(pc: UObject) -> None:
         spacer.SetSize(make_struct("Vector2D", X=1.0, Y=2.0))
         accent.SetContent(spacer)
 
-    if not style.panel:
+    if style.numbers_only:
+        main_label, details_label = build_numbers(tree, column, style, window_x.value >= 50.0)  # noqa: PLR2004
+        box.SetRenderShear(make_struct("Vector2D", X=-NUMBERS_SLANT, Y=-NUMBERS_RISE))
+        box.SetRenderOpacity(NUMBERS_OPACITY)
+    elif not style.panel:
         main_label = new_text(tree, int(font_size.value), style.main, style.shadow)
         column.AddChild(main_label)
         details_size = max(8, int(font_size.value * DETAILS_FONT_RATIO))
@@ -580,12 +692,14 @@ def build_window(pc: UObject) -> None:
 
 def remove_window() -> None:
     """Takes the window off the screen, if it's there."""
-    global window_widget, window_owner, main_label, details_label  # noqa: PLW0603
+    global window_widget, window_owner, main_label, details_label, main_glow, details_glow  # noqa: PLW0603
 
     widget = window_widget()
     window_widget = WeakPointer()
     window_owner = WeakPointer()
     main_label = details_label = None
+    main_glow = []
+    details_glow = []
     if widget is not None:
         widget.RemoveFromParent()
 
@@ -599,12 +713,14 @@ def update_window_text(now: float) -> None:
     wanted_main = main_text(now)
     if wanted_main != main_shown:
         main_shown = wanted_main
-        main_label.SetText(wanted_main)
+        for text in (*main_glow, main_label):
+            text.SetText(wanted_main)
     wanted_details = details_text(now)
     if wanted_details != details_shown:
         details_shown = wanted_details
-        details_label.SetText(wanted_details)
-        details_label.SetVisibility(HIT_TEST_INVISIBLE if wanted_details else COLLAPSED)
+        for text in (*details_glow, details_label):
+            text.SetText(wanted_details)
+            text.SetVisibility(HIT_TEST_INVISIBLE if wanted_details else COLLAPSED)
 
 
 def check_window(pc: UObject | None) -> None:

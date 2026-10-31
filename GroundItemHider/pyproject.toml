@@ -1,6 +1,6 @@
 [project]
 name = "GroundItemHider"
-version = "2.0"
+version = "2.1"
 description = "Loot filter and DPS meter for Borderlands 4."
 
 [tool.sdkmod]
