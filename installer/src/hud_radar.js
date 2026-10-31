@@ -21,9 +21,6 @@
     // How far from the middle the edge of the radar's circle is, in percent of the layer
     var REACH = 44;
     var MARKER_SIZE = 7;
-    var CHUNK = 1500;
-    // Worth reading once: how the game itself places things on this radar
-    var SOURCES = ["coui://uiresources/enemy_radar/js/enemy_radar.js", "coui://uiresources/compass/js/compass.js"];
 
     if (ext.teardowns[KEY]) {
         try {
@@ -37,7 +34,6 @@
     var layer = null;
     var markers = [];
     var reported = null;
-    var described = false;
     var language = null;
 
     // The last answer, how fast things were changing, and when it came
@@ -49,63 +45,12 @@
         ext.send(KEY, { found: found });
     }
 
-    function sendText(label, text) {
-        for (var start = 0, part = 0; start < text.length; start += CHUNK, part += 1) {
-            ext.send(KEY, { label: label + "/" + part, text: text.substr(start, CHUNK) });
-        }
-    }
-
     // The game marks its pages with the language it's running in, like loc-pl
     function reportLanguage() {
         var found = document.body && /(?:^|\s)loc-([a-z-]+)/i.exec(document.body.className);
         if (found && found[1] !== language) {
             language = found[1];
             ext.send(KEY, { lang: language });
-        }
-    }
-
-    function dumpModel(name) {
-        var model = window[name];
-        if (!model) return name + ": none";
-        var parts = [];
-        for (var key in model) {
-            var value = model[key];
-            if (typeof value === "function") continue;
-            var text;
-            try {
-                text = JSON.stringify(value);
-            } catch (err) {
-                text = String(value);
-            }
-            parts.push(key + "=" + String(text).substr(0, 300));
-        }
-        return name + ": " + parts.join(" ; ");
-    }
-
-    function describe() {
-        if (described) return;
-        described = true;
-        try {
-            sendText("models", dumpModel("data_def_enemy_radar_0") + " ||| " + dumpModel("data_def_compass_0"));
-            var names = [".enemy_radar_cntr", ".visual_radar", ".visual_radar_enemy_container", ".visual_radar_player", ".enemy_pip_wrapper", ".enemy_radar_pip", ".compass_cardinals_icons_wrapper"];
-            var styles = [];
-            for (var i = 0; i < names.length; i += 1) {
-                var element = document.querySelector(names[i]);
-                if (!element) continue;
-                var style = window.getComputedStyle(element);
-                var rect = element.getBoundingClientRect();
-                styles.push(names[i] + " inline=[" + (element.getAttribute("style") || "") + "] transform=" + style.transform
-                    + " perspective=" + style.perspective + " rect=" + Math.round(rect.left) + "," + Math.round(rect.top) + "," + Math.round(rect.width) + "," + Math.round(rect.height)
-                    + " offset=" + element.offsetLeft + "," + element.offsetTop + "," + element.offsetWidth + "," + element.offsetHeight);
-            }
-            sendText("styles", styles.join(" ; "));
-            SOURCES.forEach(function (url) {
-                ns.get(url, function (text) {
-                    if (alive && text) sendText(url.split("/").pop(), text);
-                });
-            });
-        } catch (err) {
-            sendText("describe failed", String(err));
         }
     }
 
@@ -248,7 +193,6 @@
             next(LOOK_FOR_RADAR_MS);
             return;
         }
-        describe();
         ext.get(KEY, false, function (snap) {
             if (!alive) return;
             take(snap && snap.state);

@@ -1,19 +1,19 @@
-# Borderlands 4 Loot Filter
+# Vault Hunter Tools
 
-Filtr lootu do Borderlands 4. Ukrywa to, co Cię nie interesuje, albo zostawia wszystko na ziemi i mocno wyróżnia to, co chcesz. Ma instalator, więc nie trzeba samemu stawiać Python SDK.
+Filtr lootu i licznik DPS do Borderlands 4 w jednej aplikacji. Filtr ukrywa to, co Cię nie interesuje, albo zostawia wszystko na ziemi i mocno wyróżnia to, co chcesz. Licznik pokazuje w małym okienku obrażenia na sekundę. Ma instalator, więc nie trzeba samemu stawiać Python SDK.
 
 [English](README.md)
 
 ## Instalacja
 
-1. Pobierz `Borderlands4LootFilter-Setup-*-PL.msi` z [Releases](../../releases).
+1. Pobierz `VaultHunterTools-Setup-*-PL.msi` z [Releases](../../releases).
 2. Zamknij grę i uruchom instalator. Sprawdź wykryty folder gry albo wskaż ten z `Borderlands4.exe`.
 3. Uruchom grę. Pierwszy start przygotowuje menu modów, a w prawym górnym rogu pojawi się prośba o restart.
 4. Uruchom ją ponownie. F7 albo MODS w menu pauzy otwiera ustawienia.
 
 Instalator nie jest podpisany, więc SmartScreen może ostrzec. Sumy SHA-256 są w opisie wydania.
 
-Do folderu gry trafiają Python SDK, filtr i BL4 Mod Menu, a do Windows Microsoft Visual C++ Redistributable, jeśli go brakuje. Save'y i pliki gry zostają bez zmian. Starsza wersja zostanie podmieniona, a ustawienia zostają.
+Do folderu gry trafiają Python SDK, ta aplikacja i BL4 Mod Menu, a do Windows Microsoft Visual C++ Redistributable, jeśli go brakuje. Save'y i pliki gry zostają bez zmian. Starsza wersja zostanie podmieniona, a ustawienia filtra zostają. Dotyczy to też Borderlands 4 Loot Filter. Osobny Borderlands 4 DPS Meter zostanie usunięty, a ustawienia licznika wrócą do domyślnych.
 
 ## Co robi
 
@@ -29,6 +29,19 @@ Domyślnie ukrywane są itemy białe, zielone i niebieskie. Sprzęt z firmware, 
 
 F8 wstrzymuje filtr. Menu jest po polsku lub angielsku, według języka gry. Wybór w `Język / Language` zostaje zapisany.
 
+## Licznik DPS
+
+Pokazuje DPS, sumę obrażeń, czas walki, udział krytyków, najlepsze trafienie, zabójstwa i wynik ostatniej walki. Gdy menu jest otwarte, chowa się. F6 go resetuje. Ustawienia są w menu pod `Licznik DPS`:
+
+- **Liczenie DPS:** cała walka, czyli wszystkie obrażenia podzielone przez czas od pierwszego do ostatniego trafienia, albo tylko ostatnie 1 do 60 sekund.
+- **Reset licznika:** domyślnie 5 sekund po ostatnim trafieniu, można ustawić od 1 do 60 sekund albo resetować tylko klawiszem F6. Gra nie jest pytana, czy wrogowie są w pobliżu, liczy się tylko to, kiedy kogoś ostatnio trafiłeś.
+- **Obrażenia w czasie** i **obrażenia towarzyszy** są domyślnie liczone.
+- **Wygląd licznika:** cztery style (domyślnie jak HUD gry, kompaktowy, sam tekst i neon), co pokazuje, gdzie stoi i jak jest duży.
+
+Liczy tylko Twoje obrażenia. Działa solo i u hosta. Gościom w co-opie gra nie podaje obrażeń, więc licznik zostaje na zerze i mówi dlaczego.
+
+Ustawienia, które przy Twoim wyborze nic nie zmieniają, są wyszarzone, także w filtrze.
+
 ## Pytania
 
 **F7 otwiera prosty panel albo gra prosi o restart.** To normalne po instalacji, gra wczytuje pliki menu tylko przy starcie. Uruchom ją ponownie.
@@ -41,6 +54,6 @@ F8 wstrzymuje filtr. Menu jest po polsku lub angielsku, według języka gry. Wyb
 
 ## Odinstalowanie
 
-Ustawienia Windows, Zainstalowane aplikacje, Borderlands 4 Loot Filter. Ustawienia modów i mody doinstalowane osobno zostają w `sdk_mods`.
+Ustawienia Windows, Zainstalowane aplikacje, Vault Hunter Tools. Ustawienia modów i mody doinstalowane osobno zostają w `sdk_mods`.
 
 Autorzy, licencje i budowanie są w [angielskim opisie](README.md).

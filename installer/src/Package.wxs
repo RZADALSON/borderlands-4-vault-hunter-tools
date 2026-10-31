@@ -10,6 +10,10 @@
            Codepage="$(Codepage)"
            Compressed="yes">
     <MajorUpgrade DowngradeErrorMessage="!(loc.NewerInstalled)" />
+    <!-- The DPS meter used to be its own app, this one replaces it -->
+    <Upgrade Id="3E9B7C14-52A8-4D6F-B0E3-71C8A4F29D60">
+      <UpgradeVersion Minimum="0.0.0" IncludeMinimum="yes" Property="OLD_DPS_METER" />
+    </Upgrade>
     <MediaTemplate EmbedCab="yes" />
 
     <!-- The mod menu can update these, and they're never versioned: without this, a file changed
@@ -17,7 +21,7 @@
     <Property Id="REINSTALLMODE" Value="amus" />
 
     <Property Id="ARPNOMODIFY" Value="1" />
-    <Property Id="ARPURLINFOABOUT" Value="https://github.com/RZADALSON/borderlands-4-loot-filter" />
+    <Property Id="ARPURLINFOABOUT" Value="https://github.com/RZADALSON/borderlands-4-vault-hunter-tools" />
     <Property Id="ARPPRODUCTICON" Value="ProductIcon" />
     <Icon Id="ProductIcon" SourceFile="$(IconFile)" />
     <Property Id="VCREDIST_MINOR" Value="$(VcRedistMinor)" />

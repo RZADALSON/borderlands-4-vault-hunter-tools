@@ -9,7 +9,7 @@ root, mb_src = Path(sys.argv[1]), Path(sys.argv[2])
 # --- Package exactly as the SDK loader expects: one root folder, named after the file ------------
 dist = root / "GroundItemHider.sdkmod"
 with zipfile.ZipFile(dist, "w", zipfile.ZIP_DEFLATED) as z:
-    for f in ("__init__.py", "pyproject.toml"):
+    for f in ("__init__.py", "dps.py", "localized.py", "meter.py", "native.py", "pyproject.toml"):
         z.write(root / "GroundItemHider" / f, f"GroundItemHider/{f}")
 with zipfile.ZipFile(dist) as z:
     tops = {n.split("/")[0] for n in z.namelist()}
@@ -85,7 +85,7 @@ class WP:
     def __init__(self, o=None): self.o = o
     def __call__(self): return self.o
 unreal.WeakPointer = WP
-THE_PC = types.SimpleNamespace(pc=1, PlayerState=types.SimpleNamespace(BackpackItems=types.SimpleNamespace(items=[])), Pawn=types.SimpleNamespace(K2_GetActorLocation=lambda: types.SimpleNamespace(X=0.0, Y=0.0, Z=0.0)), GetControlRotation=lambda: types.SimpleNamespace(Yaw=0.0))
+THE_PC = types.SimpleNamespace(pc=1, bShowMouseCursor=False, PlayerState=types.SimpleNamespace(BackpackItems=types.SimpleNamespace(items=[])), Pawn=types.SimpleNamespace(K2_GetActorLocation=lambda: types.SimpleNamespace(X=0.0, Y=0.0, Z=0.0)), GetControlRotation=lambda: types.SimpleNamespace(Yaw=0.0))
 sys.path[:0] = [str(tmp), str(tmp / "sdk_mods" / dist.name)]
 
 import mods_base
@@ -117,11 +117,11 @@ def check(label, got, want=True):
 mod = mods_base.mod_list.mod_list[-1]
 # These checks read the Polish texts, the language ones are further down
 m.set_game_language("pl")
-check("mod name", mod.name, "Borderlands 4 Loot Filter")
+check("mod name", mod.name, "Vault Hunter Tools")
 check("coop support", mod.coop_support.name, "ClientSide")
-check("version", mod.version, "1.5")
-check("hooks found", [h.hook_identifier and h.hook_funcs for h in mod.hooks][0][0][0], "/Script/Engine.CameraModifier:BlueprintModifyCamera")
-check("keybinds", sorted(k.identifier for k in mod.keybinds), ["Print Loot Info", "Switch Filter Mode", "Toggle Item Hiding"])
+check("version", mod.version, "2.0")
+check("hooks found", "/Script/Engine.CameraModifier:BlueprintModifyCamera" in [h.hook_funcs[0][0] for h in mod.hooks], True)
+check("keybinds", sorted(k.identifier for k in mod.keybinds), ["Print Loot Info", "Reset Meter", "Switch Filter Mode", "Toggle Item Hiding"])
 check("toggle key", next(k.key for k in mod.keybinds if k.identifier == "Toggle Item Hiding"), "F8")
 idents = {o.identifier for o in mod.options}
 check("all options listed", {"Hide By Rarity", "Hide By Manufacturer", "Hide By Item Type", "Hide Pickups", "Protect Rarity And Above", "Filter Mode", "Highlight Filters"} <= idents)
@@ -333,7 +333,7 @@ check("CDO untouched", run(cdo), [False])
 reset(); m.rarity_options[m.COMMON].value = True
 check("starts disabled on first install", mod.is_enabled, False)
 registered_hooks.clear(); mod.enable()
-check("enable registers the tick hook", [(p_, t) for p_, t, _ in registered_hooks], [("/Script/Engine.CameraModifier:BlueprintModifyCamera", Type.POST_UNCONDITIONAL)])
+check("enable registers the tick hook", ("/Script/Engine.CameraModifier:BlueprintModifyCamera", Type.POST_UNCONDITIONAL) in [(p_, t) for p_, t, _ in registered_hooks], True)
 tick = gear(smg_jak, m.COMMON); world["InventoryPickup"] = [tick]; m.last_scan = 0.0
 m.on_tick(None, None, None, None); check("tick hides", tick.bHidden, True)
 mod.disable(); check("real disable restores", tick.bHidden, False)
@@ -346,7 +346,7 @@ reset(); world["InventoryPickup"] = []; m.paused = False; m.remove_banner(); W.m
 tick_now()
 check("banner shown once", len(live()), 1)
 b = live()[0]
-tree = b.WidgetTree; box = tree.RootWidget.child; text = box.content.child
+tree = b.WidgetTree; box = tree.RootWidget.child; text = m.banner_label
 check("name prefix", b.name.startswith("GroundItemHider_Banner_"))
 check("owned by pc", b.outer is THE_PC)
 sl = dict(box.Slot.calls)
@@ -359,6 +359,7 @@ check("game font at the right size", (dict(text.calls)["SetFont"][0].Size, dict(
 check("never takes input", all(dict(w.calls)["SetVisibility"] == (3,) for w in (b, box, text)))
 for _ in range(3): tick_now()
 check("not rebuilt every scan", len(widgets()), 1)
+THE_PC.bShowMouseCursor = True; tick_now(); check("hidden in a menu", dict(box.calls)["SetVisibility"], (m.COLLAPSED,)); THE_PC.bShowMouseCursor = False; tick_now(); check("back after it", dict(box.calls)["SetVisibility"], (3,))
 b.in_viewport = False; tick_now()
 check("rebuilt after map change", (len(widgets()), len(live())), (2, 1))
 m.toggle_hiding.callback(); check("F8 removes it", len(live()), 0)
@@ -394,7 +395,7 @@ def hl(*items):
     return [m.item_key(i) in m.boosted_beams for i in items]
 def color_of(i): return m.read_beam_color(i.AttractEffectComponent)
 
-check("mode defaults to hide", m.filter_mode.default_value, m.MODE_HIDE)
+check("mode defaults to hide", m.filter_mode.default_key, m.MODE_HIDE)
 check("highlight defaults: legendary and pearl", sorted(k for k, o in m.highlight_rarity_options.items() if o.default_value), ["Legendary", "Pearlescent"])
 
 fresh(); m.highlight_rarity_options[m.LEGENDARY].value = True
@@ -487,7 +488,7 @@ def radars(): return [w for w in W.made if w.cls == "/Script/UMG.UserWidget" and
 def live_radars(): return [w for w in radars() if w.in_viewport]
 fresh(); m.remove_radar(); m.remove_banner(); W.made.clear(); world["InventoryPickup"] = []
 tick_now(); check("radar in highlight mode", len(live_radars()), 1)
-check("banner says highlight", dict([w for w in live() if w.name.startswith("GroundItemHider_Banner")][-1].WidgetTree.RootWidget.child.content.child.calls)["SetText"], ("FILTR AKTYWNY: PODSWIETLANIE",))
+check("banner says highlight", dict(m.banner_label.calls)["SetText"], ("FILTR AKTYWNY: PODSWIETLANIE",))
 frame_slot = dict(live_radars()[0].WidgetTree.RootWidget.child.Slot.calls)
 check("radar top left by default, clear of the game's", (frame_slot["SetAnchors"][0].Minimum.X, frame_slot["SetAnchors"][0].Minimum.Y, frame_slot["SetAlignment"][0].X, frame_slot["SetAlignment"][0].Y), (0.0, 0.0, 0.0, 0.0))
 m.radar_place.value = m.RADAR_RIGHT; tick_now(); one = dict(live_radars()[0].WidgetTree.RootWidget.child.Slot.calls)
@@ -539,7 +540,7 @@ m.show_radar.value = False; tick_now(); check("radar can be turned off", len(liv
 check("beam stays with radar off", m.item_key(a_) in m.boosted_beams); m.show_radar.value = True; tick_now()
 m.filter_mode.value = m.MODE_HIDE; tick_now(); check("no radar in hide mode", len(live_radars()), 0)
 world["InventoryPickup"] = []; tick_now()
-check("banner back to plain", dict([w for w in live() if w.name.startswith("GroundItemHider_Banner")][-1].WidgetTree.RootWidget.child.content.child.calls)["SetText"], ("FILTR AKTYWNY",))
+check("banner back to plain", dict(m.banner_label.calls)["SetText"], ("FILTR AKTYWNY",))
 
 # Radar failing doesn't stop the rest
 fresh(); m.remove_radar(); m.radar_error_logged = False; Log.logs.clear()
@@ -686,33 +687,44 @@ world["InventoryPickup"] = junk + [fresh_drop]
 for _ in range(5): m.apply_filter()
 check("unknowns don't block new drops", fresh_drop.bHidden); m.INCOMPLETE_RETRY = 0.0
 
+# A new pickup that isn't ready gets checked again right away, not at the next full pass
+m.item_infos.clear(); m.decided_with.clear(); m.hidden_by_us.clear(); m.first_seen.clear(); m.skip_until.clear(); m.last_pass_state = None
+m.FULL_PASS_INTERVAL = 1000.0; m.last_full_pass = 0.0
+chest = gear(smg_jak, m.COMMON); chest.bHidden = True; world["InventoryPickup"] = [chest]; m.fresh_waiting = False; m.last_keys = set(); m.apply_filter()
+check("the game's still hiding it, so we wait", (m.item_key(chest) in m.hidden_by_us, m.item_key(chest) in m.skip_until), (False, True))
+m.skip_until[m.item_key(chest)] = __import__("time").monotonic() + m.FRESH_RETRY / 2 + 0.001; m.FRESH_RETRY = 1.0; m.apply_filter(); check("still waiting, keeps scanning", m.fresh_waiting, True); check("soon", m.time_until_next_scan(), m.FRESH_SCAN_INTERVAL)
+m.FRESH_RETRY = 0.0; m.skip_until[m.item_key(chest)] = 0.0; chest.bHidden = False; m.apply_filter(); check("hidden as soon as the game lets go", chest.bHidden, True); check("nothing to wait for now", m.fresh_waiting, False)
+check("back to the normal pace", m.time_until_next_scan() >= m.scan_interval.value, True)
+m.first_seen[m.item_key(chest)] = -1000.0; check("not new for ever", m.is_fresh(m.item_key(chest), __import__("time").monotonic()), False)
+world["InventoryPickup"] = []; m.apply_filter(); check("forgotten once gone", m.first_seen, {})
+m.FULL_PASS_INTERVAL = 0.0; m.FRESH_RETRY = 0.1
+
 # Time limit, and slowing down by itself
 m.item_infos.clear(); m.decided_with.clear(); m.SCAN_TIME_LIMIT = -1.0; lim = gear(smg_jak, m.COMMON); world["InventoryPickup"] = [lim]
 m.apply_filter(); check("over the time limit, it waits", (lim.bHidden, m.scan_backlog), (False, True)); m.SCAN_TIME_LIMIT = 1000.0
 m.apply_filter(); check("and finishes next scan", (lim.bHidden, m.scan_backlog), (True, False))
 m.scan_interval.value = 0.25; m.last_scan_seconds = 0.0001; check("fast scans keep the set speed", m.time_until_next_scan(), 0.25)
-m.last_scan_seconds = 0.01; check("slow scans run less often", m.time_until_next_scan(), 1.0)
+m.last_scan_seconds = 0.01; check("slow scans run less often", m.time_until_next_scan(), 0.01 * m.SCAN_TIME_SHARE)
 m.last_scan_seconds = 5.0; check("but never stop", m.time_until_next_scan(), m.SLOWEST_SCAN_INTERVAL); m.last_scan_seconds = 0.0
-check("scan speed default", m.scan_interval.default_value, 0.25)
+check("scan speed default", m.scan_interval.default_value, 0.1)
 
 # Vending items are never counted as alive or touched
 m.BOOST_CHECK_INTERVAL = 0.0
 # --- Banner ------------------------------------------------------------------------------------------------
 fresh(); m.filter_mode.value = m.MODE_HIDE; m.remove_banner(); m.item_infos.clear(); m.hidden_by_us.clear(); m.rarity_options[m.COMMON].value = True; world["InventoryPickup"] = []
 tick_now(); ban = lambda: [w for w in live() if w.name.startswith("GroundItemHider_Banner")]
-b0 = ban()[0]; lab = lambda: [c for c in b0.WidgetTree.RootWidget.child.content.child.calls if c[0] == "SetText"][-1][1][0]
+b0 = ban()[0]; lab = lambda: [c for c in m.banner_label.calls if c[0] == "SetText"][-1][1][0]
 check("plain with nothing hidden", lab(), "FILTR AKTYWNY")
 h1, h2 = gear(smg_jak, m.COMMON), gear(smg_jak, m.COMMON); world["InventoryPickup"] = [h1, h2]; tick_now(); tick_now()
 check("counts what's hidden", lab(), "FILTR AKTYWNY: ukryte 2, do zebrania 0")
 check("text updates in place", len(ban()), 1); check("same widget", ban()[0] is b0)
-before = len(b0.WidgetTree.RootWidget.child.content.child.calls); tick_now(); check("text isn't reset needlessly", len(b0.WidgetTree.RootWidget.child.content.child.calls), before)
-accent = [c for c in b0.WidgetTree.RootWidget.child.content.calls]
+before = len(m.banner_label.calls); tick_now(); check("text isn't reset needlessly", len(m.banner_label.calls), before)
 real_fo = sdk.find_object; check("font falls back", True)
 def no_font(kind, path):
     if kind == "Font": raise ValueError("not loaded")
     return path
 m.find_object = no_font; m.remove_banner(); tick_now(); check("banner works without the game's font", len(ban()), 1)
-fallback = ban()[0].WidgetTree.RootWidget.child.content.child; check("default font is sized", fallback.Font.Size, m.BANNER_FONT_SIZE)
+fallback = m.banner_label; check("default font is sized", fallback.Font.Size, m.BANNER_FONT_SIZE)
 def no_art(kind, path):
     if kind == "Texture2D": raise ValueError("not loaded")
     return path
@@ -810,7 +822,7 @@ fake_link = types.ModuleType("bl4_mod_menu.uilink"); link_state = {"state": "che
 tick_now(); check("still checking, no notice", last_vis(), 1)
 link_state["state"] = "next_start"; tick_now(); check("needs a restart, notice shows", last_vis(), 3)
 n = len(m.restart_notice.calls); tick_now(); check("notice isn't set again", len(m.restart_notice.calls), n)
-check("banner still says it's active", dict([w for w in live() if w.name.startswith("GroundItemHider_Banner")][-1].WidgetTree.RootWidget.child.content.child.calls)["SetText"], ("FILTR AKTYWNY",))
+check("banner still says it's active", dict(m.banner_label.calls)["SetText"], ("FILTR AKTYWNY",))
 slot_calls = dict(m.restart_notice.Slot.calls); check("notice sits under the banner", (slot_calls["SetAnchors"][0].Minimum.X, slot_calls["SetPosition"][0].Y > m.BANNER_MARGIN), (1.0, True))
 link_state["state"] = "live"; tick_now(); check("after the restart it's gone", last_vis(), 1)
 link_state["state"] = "next_start"; tick_now(); m.remove_banner(); tick_now(); check("comes back on a new map", last_vis(), 3)
@@ -1105,7 +1117,7 @@ check("legendary protected", run(leg_low), [False])
 m.firmware_options["god_killer"].value = True; check("firmware keeps it", run(fw_low), [False])
 check("unknown level stays", run(nolevel), [False])
 m.minimum_level.value = 0; world["InventoryPickup"] = []; m.read_item_serial = real_ris
-check("level option in the menu", any(o.identifier == "Hide Below Level" for o in mod.options))
+check("level option not in the menu", any(o.identifier == "Hide Below Level" for o in mod.options), False)
 check("level default off", m.minimum_level.default_value, 0)
 
 # --- Ammo by weapon ------------------------------------------------------------------------------------------------
@@ -1319,7 +1331,7 @@ world["InventoryPickup"] = []; m.filter_mode.value = m.MODE_HIDE; m.remove_banne
 
 # --- Markers on the game's own radar ---------------------------------------------------------------------------
 sys.modules.pop("bl4_mod_menu.uilink", None); m.hud_radar_registered = False; m.hud_radar_found = None
-check("the game's radar is the default", m.radar_place.default_value, m.RADAR_GAME)
+check("the game's radar is the default", m.radar_place.default_key, m.RADAR_GAME)
 fresh(); m.filter_mode.value = m.MODE_HIDE; world["InventoryPickup"] = []; tick_now(); check("no menu mod, nothing registered", m.hud_radar_registered, False)
 calls = []; link_state = {"state": "live"}
 link = types.ModuleType("bl4_mod_menu.uilink"); link.HUD = "HUD"; link.status = lambda: dict(link_state)
@@ -1437,11 +1449,6 @@ for count in (600,):
     print(f"BENCH {count} items: going through them {full:.3f} ms, skipping them {idle:.3f} ms")
 m.FULL_PASS_INTERVAL = 0.0; world["InventoryPickup"] = []; m.apply_filter()
 
-# --- Learning from the HUD page, and the identity dump ------------------------------------------------------------
-m.hud_reports = 0; Log.logs.clear(); m.on_hud_radar_report({"label": "enemy_radar.js/0", "text": "code"}); check("page text reaches the log", any("HUD enemy_radar.js/0: code" in l for l in Log.logs)); check("doesn't touch the radar state", m.hud_radar_found, None)
-m.hud_reports = m.HUD_MAX_REPORTS; Log.logs.clear(); m.on_hud_radar_report({"label": "x", "text": "y"}); check("limited", Log.logs, []); m.hud_reports = 0
-m.identities_logged = m.IDENTITIES_TO_LOG - 1; Log.logs.clear(); real_rm = m.read_memory; m.read_memory = lambda a, n: b"\x01\x02"; m.log_identity(gear(smg_jak, m.EPIC), "somebody"); m.log_identity(gear(smg_jak, m.EPIC), "somebody"); m.read_memory = real_rm
-check("identities logged, a few only", sum("Identity" in l and "0102" in l for l in Log.logs), 1)
 
 # --- Language --------------------------------------------------------------------------------------------------------
 def lang_state():
@@ -1463,7 +1470,10 @@ m.language_option.value = m.LANGUAGE_AUTO; check("back to the game's", (m.shown_
 
 m.language_option.value = m.ENGLISH; m.radar_place.value = m.RADAR_GAME
 check("menus in English", (next(k.display_name for k in mod.keybinds if k.identifier == "Toggle Item Hiding"), m.rarity_options[m.LEGENDARY].display_name, m.gear_type_options[m.SMG].description, m.protected_rarity.value, m.radar_place.value), ("Pause or resume the filter", "Legendary", "Hide all SMGs.", "Legendary", "The game's radar"))
-check("mod description", mod.description.startswith("Loot filter"), True)
+check("mod description", mod.description.startswith("Hides"), True)
+m.filter_mode.value = m.MODE_HIDE; check("highlight settings grey when hiding", (m.beam_size.greyed_when(), m.keep_shiny.greyed_when()), (True, False))
+m.filter_mode.value = m.MODE_HIGHLIGHT; check("hide settings grey when highlighting", (m.beam_size.greyed_when(), m.keep_shiny.greyed_when(), m.show_left_on_radar.greyed_when()), (False, True, True)); m.filter_mode.value = m.MODE_HIDE
+m.show_radar.value = False; check("radar settings grey with no radar", (m.radar_range.greyed_when(), m.show_left_on_radar.greyed_when()), (True, True)); m.show_radar.value = True; check("and back", m.radar_range.greyed_when(), False)
 def walk(options):
     for option in options:
         yield option

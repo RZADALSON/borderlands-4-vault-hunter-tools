@@ -1,10 +1,10 @@
 [project]
 name = "GroundItemHider"
-version = "1.5"
-description = "Loot filter: hides chosen items on the ground, or strongly highlights them, with a radar."
+version = "2.0"
+description = "Loot filter and DPS meter for Borderlands 4."
 
 [tool.sdkmod]
-name = "Borderlands 4 Loot Filter"
-download = "https://github.com/RZADALSON/borderlands-4-loot-filter/releases"
+name = "Vault Hunter Tools"
+download = "https://github.com/RZADALSON/borderlands-4-vault-hunter-tools/releases"
 license = { name = "GPL3", url = "https://choosealicense.com/licenses/gpl-3.0/" }
 coop_support = "ClientSide"

@@ -16,7 +16,7 @@ from PIL import Image, ImageDraw
 
 from patch_menu import patch_sdkmod
 
-VERSION = "1.5.0"
+VERSION = "2.0.0"
 # Windows picks a language for an MSI when it's built, so each language gets its own file
 LANGUAGES = (
     ("PL", "pl-PL", "1045", "1250"),
@@ -36,7 +36,7 @@ def package_mod() -> Path:
     """Packs the filter the way the SDK wants it: one root folder, named after the file."""
     target = ROOT / "GroundItemHider.sdkmod"
     with zipfile.ZipFile(target, "w", zipfile.ZIP_DEFLATED) as sdkmod:
-        for name in ("__init__.py", "pyproject.toml"):
+        for name in ("__init__.py", "dps.py", "localized.py", "meter.py", "native.py", "pyproject.toml"):
             sdkmod.write(ROOT / "GroundItemHider" / name, f"GroundItemHider/{name}")
     return target
 
@@ -134,7 +134,7 @@ def main() -> None:
         tools = Path(short) / "t"
         shutil.copytree(HERE / "tools", tools)
         for suffix, culture, language, codepage in LANGUAGES:
-            msi = DIST / f"Borderlands4LootFilter-Setup-{VERSION}-{suffix}.msi"
+            msi = DIST / f"VaultHunterTools-Setup-{VERSION}-{suffix}.msi"
             subprocess.run(
                 [
                 str(tools / "wix"), "build",

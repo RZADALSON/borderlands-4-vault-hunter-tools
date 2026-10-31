@@ -1,19 +1,19 @@
-# Borderlands 4 Loot Filter
+# Vault Hunter Tools
 
-A loot filter for Borderlands 4. It hides the items you don't care about, or leaves everything on the ground and makes the ones you want stand out. Comes with an installer, so you don't need to set up the Python SDK yourself.
+A loot filter and DPS meter for Borderlands 4, in one app. The filter hides the items you don't care about, or leaves everything on the ground and makes the ones you want stand out. The meter shows your damage per second in a small window. Comes with an installer, so you don't need to set up the Python SDK yourself.
 
 [Polski opis](README.pl.md)
 
 ## Install
 
-1. Get `Borderlands4LootFilter-Setup-*-EN.msi` from [Releases](../../releases). There's a `-PL` one too, the only difference is the installer's language.
+1. Get `VaultHunterTools-Setup-*-EN.msi` from [Releases](../../releases). There's a `-PL` one too, the only difference is the installer's language.
 2. Close the game and run it. Check the game folder it found, or point it at the one with `Borderlands4.exe` in it.
 3. Start the game. The first start prepares the mod menu, and a message in the top right asks you to restart.
 4. Start it again. F7, or MODS in the pause menu, opens the settings.
 
 Windows SmartScreen may warn you, because the installer isn't signed. The SHA-256 of each file is in the release notes.
 
-It adds the Python SDK, the filter and BL4 Mod Menu to the game's folder, and the Microsoft Visual C++ Redistributable to Windows if it's missing. It doesn't touch your saves or replace any game files. If you already have an older version, it gets replaced and your settings stay.
+It adds the Python SDK, this app and BL4 Mod Menu to the game's folder, and the Microsoft Visual C++ Redistributable to Windows if it's missing. It doesn't touch your saves or replace any game files. If you already have an older version, it gets replaced and your filter settings stay. If you had Borderlands 4 Loot Filter it gets replaced too. If you had the separate Borderlands 4 DPS Meter, this removes it, and the meter's settings go back to their defaults.
 
 BL4 Mod Menu checks GitHub for mod updates when the game starts, but doesn't download anything until you click. You can turn that off in its options.
 
@@ -31,6 +31,19 @@ White, green and blue items are hidden by default. Gear with firmware, an anoint
 
 F8 pauses the filter. The menus are in Polish or English, following the language the game runs in. If you pick one under `Język / Language`, that's saved.
 
+## DPS meter
+
+Shows your DPS, total damage, fight time, share of crit damage, best hit, kills and how your last fight went. It hides while a menu is open. F6 resets it. Its settings are under `DPS meter` in the menu:
+
+- **DPS calculation:** the whole fight, which is all your damage divided by the time from your first hit to your last, or only the last 1 to 60 seconds.
+- **Meter reset:** 5 seconds after your last hit by default, from 1 to 60 seconds, or only with F6. The game isn't asked if enemies are nearby, all that matters is when you last hit one.
+- **Damage over time** and **companion damage** count by default.
+- **Meter display:** four styles (like the game's HUD by default, compact, text only and neon), what it shows, where it sits and how big it is.
+
+It only counts your own damage. It works solo and when you're hosting. The game doesn't tell co-op guests about damage, so for a guest it stays at zero and says why.
+
+Settings that don't do anything with your current choices are greyed out, in the filter too.
+
 ## Questions
 
 **F7 opens a basic panel, or the game asks for a restart.** That's normal after installing, as the game only loads the menu's files when it starts. Restart it.
@@ -43,7 +56,7 @@ F8 pauses the filter. The menus are in Polish or English, following the language
 
 ## Uninstall
 
-Windows Settings, Installed apps, Borderlands 4 Loot Filter. Your mod settings and any mods you added yourself stay in `sdk_mods`.
+Windows Settings, Installed apps, Vault Hunter Tools. Your mod settings and any mods you added yourself stay in `sdk_mods`.
 
 ## Building it
 
@@ -71,6 +84,8 @@ The code here is [GPL-3.0](LICENSE). The installer also carries:
 - [BL4 Mod Menu](https://github.com/flameaway/bl4-fix) by flameaway, GPL-3.0, with a scrollbar fix
 - Python, PSF licence
 - Microsoft Visual C++ Redistributable, Microsoft's terms
+
+The way the meter hears about damage (`native.py`) comes from Carnage Meter in [bl4-fix](https://github.com/flameaway/bl4-fix) by flameaway, GPL-3.0.
 
 Reading rarity from the beam is adapted from [BL4 Loot Filter](https://github.com/jlangowells/bl4_loot_filter) by Lango (GPL-3.0), who credits SlippyCheeze for the original logic. Colour palettes and item paths were checked against [Loot Magnet](https://github.com/max0n4ik/LootMagnet). The on-screen widgets follow [bl4-fix](https://github.com/flameaway/bl4-fix). The firmware parts table comes from [bl4](https://github.com/monokrome/bl4) by monokrome (BSD-2-Clause).
 

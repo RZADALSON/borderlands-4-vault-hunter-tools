@@ -1,5 +1,16 @@
 # Changelog
 
+## 2.0.0
+
+- The DPS meter is now part of this app, under `DPS meter` in its settings. Installing this removes the separate Borderlands 4 DPS Meter. The meter's settings go back to their defaults once.
+- New name: Vault Hunter Tools, as it's more than a loot filter now.
+- The meter counts each enemy as one kill, however many pellets hit it as it dies, and the last fight's line says how many there were.
+- Items from chests disappear much sooner. A new item that wasn't ready yet could wait 1 to 3 seconds for its next check, now it's a tenth of a second.
+- The banner looks like the panels on the game's HUD, and hides while a menu is open.
+- Settings that don't do anything right now are greyed out, like the hide filters in highlight mode.
+- Radar settings have their own page instead of sitting under highlighting. They go back to their defaults once.
+- Removed `Hide below level`, which never worked as gear on the ground doesn't say its level, and the scan interval setting.
+
 ## 1.5.0
 
 - New name: Borderlands 4 Loot Filter, was Ground Item Hider. Installing replaces the old version and keeps your settings.

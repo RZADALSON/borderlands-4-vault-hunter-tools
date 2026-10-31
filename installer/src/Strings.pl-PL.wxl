@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <WixLocalization Culture="pl-PL" Codepage="1250" xmlns="http://wixtoolset.org/schemas/v4/wxl">
-  <String Id="ProductName" Value="Borderlands 4 Loot Filter" />
-  <String Id="NewerInstalled" Value="Masz już zainstalowaną nowszą wersję Borderlands 4 Loot Filter." />
+  <String Id="ProductName" Value="Vault Hunter Tools" />
+  <String Id="NewerInstalled" Value="Masz już zainstalowaną nowszą wersję Vault Hunter Tools." />
 
   <String Id="WelcomeDlgTitle" Value="{\WixUI_Font_Bigger}Instalator filtra lootu do Borderlands 4" />
-  <String Id="WelcomeDlgDescription" Value="Zainstaluje wszystko, czego potrzeba: Python SDK, filtr lootu Borderlands 4 Loot Filter, BL4 Mod Menu i Microsoft Visual C++ Redistributable.&#13;&#10;&#13;&#10;Zamknij Borderlands 4 przed instalacją. Save'y nie są zmieniane." />
+  <String Id="WelcomeDlgDescription" Value="Zainstaluje wszystko, czego potrzeba: Python SDK, Vault Hunter Tools, BL4 Mod Menu i Microsoft Visual C++ Redistributable.&#13;&#10;&#13;&#10;Zamknij Borderlands 4 przed instalacją. Save'y nie są zmieniane." />
 
   <String Id="InstallDirDlgTitle" Value="{\WixUI_Font_Title}Gdzie jest gra?" />
   <String Id="InstallDirDlgDescription" Value="Sprawdź lub wskaż główny folder Borderlands 4." />
