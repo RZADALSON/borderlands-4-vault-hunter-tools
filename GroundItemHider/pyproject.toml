@@ -1,10 +1,10 @@
 [project]
 name = "GroundItemHider"
-version = "1.4"
-description = "Filtr lootu: ukrywa wybrane itemy na ziemi albo mocno je podświetla, z radarem."
+version = "1.5"
+description = "Loot filter: hides chosen items on the ground, or strongly highlights them, with a radar."
 
 [tool.sdkmod]
-name = "Ground Item Hider"
-download = "https://github.com/RZADALSON/bl4-ground-item-hider/releases"
+name = "Borderlands 4 Loot Filter"
+download = "https://github.com/RZADALSON/borderlands-4-loot-filter/releases"
 license = { name = "GPL3", url = "https://choosealicense.com/licenses/gpl-3.0/" }
 coop_support = "ClientSide"

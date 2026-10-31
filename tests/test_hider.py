@@ -1,6 +1,6 @@
 """Loads the packaged mod through the real mods_base, with only the engine faked.
 Usage: test_hider.py <folder holding GroundItemHider> <folder holding the real mods_base>"""
-import ctypes, shutil, struct, sys, tempfile, types, zipfile
+import ctypes, json, shutil, struct, sys, tempfile, types, zipfile
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -115,9 +115,11 @@ def check(label, got, want=True):
 
 # --- The mod as the real mods_base built it --------------------------------------------------------
 mod = mods_base.mod_list.mod_list[-1]
-check("mod name", mod.name, "Ground Item Hider")
+# These checks read the Polish texts, the language ones are further down
+m.set_game_language("pl")
+check("mod name", mod.name, "Borderlands 4 Loot Filter")
 check("coop support", mod.coop_support.name, "ClientSide")
-check("version", mod.version, "1.4")
+check("version", mod.version, "1.5")
 check("hooks found", [h.hook_identifier and h.hook_funcs for h in mod.hooks][0][0][0], "/Script/Engine.CameraModifier:BlueprintModifyCamera")
 check("keybinds", sorted(k.identifier for k in mod.keybinds), ["Print Loot Info", "Switch Filter Mode", "Toggle Item Hiding"])
 check("toggle key", next(k.key for k in mod.keybinds if k.identifier == "Toggle Item Hiding"), "F8")
@@ -192,7 +194,7 @@ def gear(b, r=m.EPIC, mat="MID_M_x", **f): return Item(b, mat, Beam(C[r], **f))
 def reset():
     for group in (m.rarity_options, m.manufacturer_options, m.gear_type_options, m.pickup_options):
         for o in group.values(): o.value = False
-    m.protected_rarity.value = m.RARITY_LABELS[m.LEGENDARY]
+    m.protected_rarity.value = m.LEGENDARY
     m.hidden_by_us.clear()
 def run(*items):
     world["InventoryPickup"] = list(items); m.apply_filter()
@@ -215,7 +217,7 @@ a, b_, leg = gear(smg_jak), gear(snip_vla), gear(smg_jak, m.LEGENDARY)
 check("jakobs hidden, vladof not, legendary jakobs protected", run(a, b_, leg), [True, False, False])
 m.protected_rarity.value = m.NO_PROTECTION
 check("protection off hides legendary jakobs", run(a, b_, leg), [True, False, True])
-reset(); m.protected_rarity.value = m.RARITY_LABELS[m.EPIC]; m.manufacturer_options["Jakobs"].value = True
+reset(); m.protected_rarity.value = m.EPIC; m.manufacturer_options["Jakobs"].value = True
 check("protect epic+", run(gear(smg_jak, m.EPIC), gear(smg_jak, m.RARE)), [False, True])
 
 for path, code, name in ((pistol_ted, "TED", "Tediore"), (ar_ord, "ORD", "Order"), (sg_mal, "MAL", "Maliwan"), (heavy_tor, "TOR", "Torgue"),
@@ -547,8 +549,8 @@ check("beam works if radar fails", m.item_key(x_) in m.boosted_beams); check("ra
 m.build_radar = real_br; m.radar_error_logged = False
 
 # The switch bind, the debug bind, and the real disable
-fresh(); m.switch_filter_mode.callback(); check("switch to hide", m.filter_mode.value, m.MODE_HIDE)
-m.switch_filter_mode.callback(); check("switch to highlight", m.filter_mode.value, m.MODE_HIGHLIGHT)
+fresh(); m.switch_filter_mode.callback(); check("switch to hide", m.filter_mode.key, m.MODE_HIDE)
+m.switch_filter_mode.callback(); check("switch to highlight", m.filter_mode.key, m.MODE_HIGHLIGHT)
 Log.logs.clear(); world["InventoryPickup"] = [x_]; m.print_loot_info.callback()
 check("debug bind shows highlight", any("highlight=" in l and "beam_color=" in l for l in Log.logs))
 x_ = gear(smg_jak, m.LEGENDARY); world["InventoryPickup"] = [x_]  # The last one had its record wiped by fresh()
@@ -568,11 +570,11 @@ check("pickup label", m.highlight_pickup_options[m.HEALTH].display_name, "Zdrowi
 check("manufacturer stays a name", m.manufacturer_options["Jakobs"].display_name, "Jakobs")
 check("nothing left unlabelled", all(o.display_name != o.identifier or o in m.manufacturer_options.values() or o in m.highlight_manufacturer_options.values() for o in [*mod.options, *m.rarity_options.values(), *m.gear_type_options.values()]))
 check("keybind label", next(k.display_name for k in mod.keybinds if k.identifier == "Toggle Item Hiding"), "Włącz lub wstrzymaj filtr")
-m.filter_mode.value = "Hide"; m.protected_rarity.value = "Legendary"; m.fix_old_spinner_values()
-check("old saved mode migrates", m.filter_mode.value, m.MODE_HIDE)
-check("old saved protection migrates", m.protected_rarity.value, m.RARITY_LABELS[m.LEGENDARY])
+m.filter_mode._from_json("Hide"); m.protected_rarity._from_json("Legendary")
+check("old saved mode migrates", m.filter_mode.key, m.MODE_HIDE)
+check("old saved protection migrates", m.protected_rarity.key, m.LEGENDARY)
 check("protection still works", (m.is_protected(m.LEGENDARY), m.is_protected(m.EPIC)), (True, False))
-m.protected_rarity.value = m.RARITY_LABELS[m.PEARLESCENT]; check("protect pearl only", (m.is_protected(m.PEARLESCENT), m.is_protected(m.LEGENDARY)), (True, False))
+m.protected_rarity.value = m.PEARLESCENT; check("protect pearl only", (m.is_protected(m.PEARLESCENT), m.is_protected(m.LEGENDARY)), (True, False))
 m.protected_rarity.value = m.NO_PROTECTION; check("no protection", m.is_protected(m.PEARLESCENT), False)
 
 # --- Scan cost ------------------------------------------------------------------------------------------
@@ -652,7 +654,7 @@ gun = gear(smg_jak, m.EPIC)
 check("only the chosen character's class mods hide", run(vex, rafa, nobody, gun), [True, False, False, False])
 check("legendary is protected", run(gear(cm_body("DarkSiren"), m.LEGENDARY)), [False])
 m.protected_rarity.value = m.NO_PROTECTION; check("unless protection is off", run(gear(cm_body("DarkSiren"), m.LEGENDARY)), [True])
-m.protected_rarity.value = m.RARITY_LABELS[m.LEGENDARY]
+m.protected_rarity.value = m.LEGENDARY
 check("firmware still keeps it", run(gear(cm_body("DarkSiren"), m.COMMON, HasFirmware=True)), [False])
 m.character_options["Vex"].value = False; m.gear_type_options[m.CLASS_MOD].value = True
 check("the type filter still covers all of them", run(gear(cm_body("ExoSoldier"), m.EPIC)), [True])
@@ -931,7 +933,7 @@ shown_now = lambda: [c for c in m.restart_notice.calls if c[0] == "SetVisibility
 check("all fine, nothing shown", shown_now(), 1)
 link_state["state"] = "game_changed"; tick_now(); check("game patch shown", (shown_now(), "Patch gry" in said()), (3, True))
 link_state["state"] = "conflict"; tick_now(); check("conflict shown", (shown_now(), "Inny mod" in said()), (3, True))
-link_state["state"] = "next_start"; tick_now(); check("restart shown", said(), m.RESTART_NOTICE_TEXT)
+link_state["state"] = "next_start"; tick_now(); check("restart shown", said(), m.RESTART_NOTICE_TEXT[0])
 link_state["state"] = "checking"; tick_now(); check("nothing while checking", shown_now(), 1)
 link_state["state"] = "error"; tick_now(); check("nothing to say about errors", shown_now(), 1)
 sys.modules.pop("bl4_mod_menu.uilink", None); m.remove_banner()
@@ -1002,12 +1004,12 @@ check("polish labels", (m.block_pickup.display_name, m.show_dropped.display_name
 # --- Back to defaults, and stats ----------------------------------------------------------------------------
 fresh(); m.filter_mode.value = m.MODE_HIGHLIGHT; m.rarity_options[m.RARE].value = False; m.manufacturer_options["Jakobs"].value = True; m.block_pickup.value = False; m.radar_place.value = m.RADAR_RIGHT; m.scan_interval.value = 0.5
 reset_button = next(o for o in mod.options if o.identifier == "Reset Filters"); reset_button.on_press(reset_button)
-check("reset: mode", m.filter_mode.value, m.MODE_HIDE)
+check("reset: mode", m.filter_mode.key, m.MODE_HIDE)
 check("reset: rarity", m.rarity_options[m.RARE].value, True)
 check("reset: manufacturer", m.manufacturer_options["Jakobs"].value, False)
 check("reset: blocking", m.block_pickup.value, True)
 check("reset: highlight defaults", (m.highlight_rarity_options[m.LEGENDARY].value, m.highlight_firmware.value), (True, True))
-check("reset leaves looks alone", (m.radar_place.value, m.scan_interval.value), (m.RADAR_RIGHT, 0.5))
+check("reset leaves looks alone", (m.radar_place.key, m.scan_interval.value), (m.RADAR_RIGHT, 0.5))
 m.radar_place.value = m.RADAR_LEFT; m.scan_interval.value = 0.25
 world["InventoryPickup"] = []; Log.logs.clear(); m.STATS_LOG_INTERVAL = 1000.0; m.last_stats_log = __import__("time").monotonic(); m.timed_scan(); check("stats aren't spammed", sum("scans: average" in l for l in Log.logs), 0)
 m.last_stats_log = -5000.0; m.timed_scan(); m.timed_scan(); check("stats logged in time", sum("scans: average" in l for l in Log.logs), 1)
@@ -1059,7 +1061,7 @@ trust = typed_item(body("Weapons/SMG/JAK/Body_JAK_SM.B"), 13); check("the serial
 fallback = gear(smg_jak, m.LEGENDARY); check("no serial, the path still works", run(fallback), [True])
 m.manufacturer_options["Jakobs"].value = False; m.gear_type_options[m.SHIELD].value = True
 newpath = typed_item(body("New/Place/B.B"), 321); check("type from the serial for an unknown path", run(newpath), [True])
-m.read_item_serial = real_ris; m.protected_rarity.value = m.RARITY_LABELS[m.LEGENDARY]; served.clear()
+m.read_item_serial = real_ris; m.protected_rarity.value = m.LEGENDARY; served.clear()
 
 # --- Pickups by material, the way other mods go by it ------------------------------------------------------------
 for mat, kind in (("MI_ArmorShard_01", m.ARMOR_SHARD), ("M_ShieldBoosters_x", m.SHIELD_BOOSTER), ("MI_Health_Large", m.HEALTH), ("MI_HealthVial", m.HEALTH), ("MI_AMMO_SMG", m.AMMO), ("MI_ammo_x", m.AMMO), ("MI_Money", m.MONEY), ("MI_Eridium", m.ERIDIUM)):
@@ -1126,7 +1128,7 @@ def soak(seed, steps):
     rng = _r.Random(seed)
     W.made.clear()
     fresh(); m.item_infos.clear(); m.decided_with.clear(); m.hidden_by_us.clear(); m.blocked_items.clear(); m.boosted_beams.clear(); m.highlight_pointers.clear(); m.skip_until.clear()
-    m.remove_radar(); m.remove_banner(); m.paused = False; m.filter_mode.value = m.MODE_HIDE; m.protected_rarity.value = m.RARITY_LABELS[m.LEGENDARY]; m.minimum_level.value = 0
+    m.remove_radar(); m.remove_banner(); m.paused = False; m.filter_mode.value = m.MODE_HIDE; m.protected_rarity.value = m.LEGENDARY; m.minimum_level.value = 0
     m.read_item_serial = lambda i: None; m.SKIPPED_ITEM_RETRY = 0.0; m.DROP_DISTANCE = 800.0
     m.firmware_problem_logged = True
     THE_PC.PlayerState = types.SimpleNamespace(BackpackItems=types.SimpleNamespace(items=slots(5)))
@@ -1164,8 +1166,8 @@ def soak(seed, steps):
         world["InventoryPickup"] = list(items)
         # Enough scans to get through any backlog, then everything must be settled
         for _ in range(1 + len(items) // m.MAX_READS_PER_SCAN + 1): m.apply_filter()
-        hiding = not m.paused and m.filter_mode.value == m.MODE_HIDE
-        highlighting = not m.paused and m.filter_mode.value == m.MODE_HIGHLIGHT
+        hiding = not m.paused and m.filter_mode.key == m.MODE_HIDE
+        highlighting = not m.paused and m.filter_mode.key == m.MODE_HIGHLIGHT
         for i in items:
             k = m.item_key(i); info = m.item_infos.get(k)
             if info is None: problems.append((step, "never read", i.BodyData)); continue
@@ -1210,7 +1212,7 @@ def rough_soak(seed, steps):
     rng = _r.Random(seed)
     W.made.clear()
     fresh(); m.item_infos.clear(); m.decided_with.clear(); m.hidden_by_us.clear(); m.blocked_items.clear(); m.boosted_beams.clear(); m.highlight_pointers.clear(); m.skip_until.clear()
-    m.remove_radar(); m.remove_banner(); m.paused = False; m.filter_mode.value = m.MODE_HIDE; m.protected_rarity.value = m.RARITY_LABELS[m.LEGENDARY]; m.minimum_level.value = 0
+    m.remove_radar(); m.remove_banner(); m.paused = False; m.filter_mode.value = m.MODE_HIDE; m.protected_rarity.value = m.LEGENDARY; m.minimum_level.value = 0
     m.read_item_serial = lambda i: None; m.SKIPPED_ITEM_RETRY = 0.0; m.firmware_problem_logged = True; m.rarity_options[m.COMMON].value = True
     THE_PC.PlayerState = types.SimpleNamespace(BackpackItems=types.SimpleNamespace(items=slots(5)))
     class Flaky(Item):
@@ -1332,10 +1334,11 @@ state_fn, report = registered[1][2], registered[1][3]
 fresh(); m.radar_place.value = m.RADAR_GAME; m.item_infos.clear(); m.decided_with.clear(); m.visible_gear_pointers.clear(); m.filter_mode.value = m.MODE_HIDE; m.rarity_options[m.COMMON].value = True
 hidden_one, left_one, ammo_one = gear(smg_jak, m.COMMON), gear(smg_jak, m.LEGENDARY), Item("", "MI_AMMO_SMG")
 left_one.location = types.SimpleNamespace(X=5000.0, Y=0.0, Z=0.0); world["InventoryPickup"] = [hidden_one, left_one, ammo_one]; tick_now()
-marks = state_fn()["m"]; check("one marker, for what's left", len(marks), 1)
-check("straight ahead is up", (marks[0][0], marks[0][1]), (0.0, -0.5)); check("in its rarity's colour", marks[0][2], m.HUD_MARKER_COLORS[m.LEGENDARY])
-THE_PC.GetControlRotation = lambda: types.SimpleNamespace(Yaw=90.0); marks = state_fn()["m"]; check("turning right moves it left", (marks[0][0], marks[0][1]), (-0.5, 0.0)); THE_PC.GetControlRotation = lambda: types.SimpleNamespace(Yaw=0.0)
-left_one.location = types.SimpleNamespace(X=99000.0, Y=0.0, Z=0.0); m.refresh_radar_items(); check("far away stays on the rim", state_fn()["m"][0][1], -1.0)
+state_now = state_fn(); marks = state_now["m"]; check("one marker, for what's left", len(marks), 1)
+check("sends where it is", (marks[0][0], marks[0][1]), (5000.0, 0.0)); check("in its rarity's colour", marks[0][2], m.HUD_MARKER_COLORS[m.LEGENDARY])
+check("sends where you are", state_now["p"], [0.0, 0.0]); check("and the range in world units", state_now["r"], m.radar_range.value * 100.0)
+THE_PC.GetControlRotation = lambda: types.SimpleNamespace(Yaw=90.0); check("and which way you look", state_fn()["y"], 90.0); THE_PC.GetControlRotation = lambda: types.SimpleNamespace(Yaw=0.0)
+check("default range", m.radar_range.default_value, 40.0)
 m.dropped_items.add(m.item_key(left_one)); m.decided_with.clear(); m.apply_filter(); check("what you dropped isn't marked", state_fn()["m"], []); m.dropped_items.clear(); m.decided_with.clear(); m.apply_filter()
 m.show_left_on_radar.value = False; m.apply_filter(); check("the option turns that off", state_fn()["m"], []); m.show_left_on_radar.value = True; m.apply_filter()
 m.toggle_hiding.callback(); check("nothing while paused", state_fn()["m"], []); m.toggle_hiding.callback()
@@ -1433,6 +1436,112 @@ for count in (600,):
     idle = (_t2.perf_counter() - start) / 200 * 1000
     print(f"BENCH {count} items: going through them {full:.3f} ms, skipping them {idle:.3f} ms")
 m.FULL_PASS_INTERVAL = 0.0; world["InventoryPickup"] = []; m.apply_filter()
+
+# --- Learning from the HUD page, and the identity dump ------------------------------------------------------------
+m.hud_reports = 0; Log.logs.clear(); m.on_hud_radar_report({"label": "enemy_radar.js/0", "text": "code"}); check("page text reaches the log", any("HUD enemy_radar.js/0: code" in l for l in Log.logs)); check("doesn't touch the radar state", m.hud_radar_found, None)
+m.hud_reports = m.HUD_MAX_REPORTS; Log.logs.clear(); m.on_hud_radar_report({"label": "x", "text": "y"}); check("limited", Log.logs, []); m.hud_reports = 0
+m.identities_logged = m.IDENTITIES_TO_LOG - 1; Log.logs.clear(); real_rm = m.read_memory; m.read_memory = lambda a, n: b"\x01\x02"; m.log_identity(gear(smg_jak, m.EPIC), "somebody"); m.log_identity(gear(smg_jak, m.EPIC), "somebody"); m.read_memory = real_rm
+check("identities logged, a few only", sum("Identity" in l and "0102" in l for l in Log.logs), 1)
+
+# --- Language --------------------------------------------------------------------------------------------------------
+def lang_state():
+    return (m.shown_language, m.filter_mode.value, m.filter_mode.display_name, m.filter_mode.key)
+m.language_option.value = m.LANGUAGE_AUTO; m.filter_mode.value = m.MODE_HIDE; m.game_language = None; m.apply_language()
+check("nothing known falls back to English", lang_state(), ("en", "Hide", "Filter mode", m.MODE_HIDE))
+m.set_game_language("polish"); check("Steam's name for Polish", lang_state(), ("pl", "Ukrywanie", "Tryb filtra", m.MODE_HIDE))
+m.on_hud_radar_report({"lang": "en"}); check("the HUD can say otherwise", m.shown_language, "en")
+m.on_hud_radar_report({"lang": "pl"}); check("the HUD's loc class", m.shown_language, "pl")
+m.on_hud_radar_report({"lang": "de"}); check("other languages use English", m.shown_language, "en")
+m.on_hud_radar_report({"lang": "pl-PL"}); check("with a region", m.shown_language, "pl")
+check("language doesn't touch the radar state", m.hud_radar_found in (None, True, False), True)
+
+m.language_option.value = m.ENGLISH; check("choosing overrides the game", lang_state(), ("en", "Hide", "Filter mode", m.MODE_HIDE))
+m.on_hud_radar_report({"lang": "pl"}); check("the game can't override a choice", m.shown_language, "en")
+check("own value follows", m.language_option.value, "English")
+m.language_option.value = "Polski"; check("the menu sets it by its text", (m.shown_language, m.language_option.key), ("pl", m.POLISH))
+m.language_option.value = m.LANGUAGE_AUTO; check("back to the game's", (m.shown_language, m.language_option.value), ("pl", "Automatycznie (jak w grze)"))
+
+m.language_option.value = m.ENGLISH; m.radar_place.value = m.RADAR_GAME
+check("menus in English", (next(k.display_name for k in mod.keybinds if k.identifier == "Toggle Item Hiding"), m.rarity_options[m.LEGENDARY].display_name, m.gear_type_options[m.SMG].description, m.protected_rarity.value, m.radar_place.value), ("Pause or resume the filter", "Legendary", "Hide all SMGs.", "Legendary", "The game's radar"))
+check("mod description", mod.description.startswith("Loot filter"), True)
+def walk(options):
+    for option in options:
+        yield option
+        yield from walk(getattr(option, "children", ()))
+everything = [*walk(mod.options), *mod.keybinds]
+polish_letters = set("ąćęłńóśźżĄĆĘŁŃÓŚŹŻ")
+leftovers = [o.display_name for o in everything if polish_letters & set(o.display_name + (o.description or "")) and o is not m.language_option]
+check("no Polish left in the English menus", leftovers, [])
+m.language_option.value = m.POLISH
+polish_names = {o.identifier: o.display_name for o in walk(mod.options)}
+m.language_option.value = m.ENGLISH
+english_names = {o.identifier: o.display_name for o in walk(mod.options)}
+same = sorted(i for i in polish_names if polish_names[i] == english_names[i])
+known_same = {*m.manufacturer_options, *m.character_options, *(o.identifier for o in m.firmware_options.values()), "Eridium", "Language", "Epic"}
+check("every other name changes with the language", [i for i in same if i not in known_same], [])
+
+# The filter means the same in either language
+m.language_option.value = m.POLISH; m.filter_mode.value = m.MODE_HIGHLIGHT; m.protected_rarity.value = m.EPIC; m.radar_place.value = m.RADAR_LEFT
+before = (m.filter_mode.key, m.protected_rarity.key, m.radar_place.key)
+check("texts are Polish", (m.filter_mode.value, m.protected_rarity.value, m.radar_place.value), ("Podświetlanie", "Epickie", "Lewy górny róg"))
+m.language_option.value = m.ENGLISH
+check("choices survive a language change", (m.filter_mode.key, m.protected_rarity.key, m.radar_place.key), before)
+check("and read in English", (m.filter_mode.value, m.protected_rarity.value, m.radar_place.value), ("Highlight", "Epic", "Top left corner"))
+check("the choices list too", m.filter_mode.choices, ["Hide", "Highlight"]); check("protection works", (m.is_protected(m.EPIC), m.is_protected(m.RARE)), (True, False))
+m.filter_mode.value = "Podświetlanie"; check("a stale text still means the same", m.filter_mode.key, m.MODE_HIGHLIGHT)
+
+# Saved and loaded the same whatever language is on
+check("saved by meaning", (m.filter_mode._to_json(), m.protected_rarity._to_json(), m.radar_place._to_json(), m.language_option._to_json()), (m.MODE_HIGHLIGHT, m.EPIC, m.RADAR_LEFT, m.ENGLISH))
+m.filter_mode._from_json("Ukrywanie"); check("old Polish setting loads", m.filter_mode.key, m.MODE_HIDE)
+m.protected_rarity._from_json("Wyłączona"); check("old Polish protection loads", m.protected_rarity.key, m.NO_PROTECTION)
+m.radar_place._from_json("Radar gry"); check("old Polish radar loads", m.radar_place.key, m.RADAR_GAME)
+m.filter_mode._from_json(m.MODE_HIGHLIGHT); check("new setting loads", m.filter_mode.key, m.MODE_HIGHLIGHT)
+m.filter_mode._from_json("rubbish"); check("nonsense changes nothing", m.filter_mode.key, m.MODE_HIGHLIGHT)
+m.language_option._from_json(m.POLISH); check("the choice of language loads", m.shown_language, "pl")
+m.reset_to_defaults(); check("reset keeps the language", (m.language_option.key, m.filter_mode.key, m.protected_rarity.key), (m.POLISH, m.MODE_HIDE, m.LEGENDARY))
+check("language isn't a filter", m.language_option in m.filter_options, False)
+
+m.language_option.value = m.ENGLISH; m.filter_mode.value = m.MODE_HIDE; m.hidden_by_us.clear(); check("banner in English", m.wanted_banner_text().startswith("FILTER ACTIVE"), True)
+m.hidden_by_us.update({1, 2}); real_left = m.count_gear_left; m.count_gear_left = lambda: 3; check("counts in English", m.wanted_banner_text(), "FILTER ACTIVE: hidden 2, to collect 3")
+m.language_option.value = m.POLISH; check("counts in Polish", m.wanted_banner_text(), "FILTR AKTYWNY: ukryte 2, do zebrania 3")
+m.filter_mode.value = m.MODE_HIGHLIGHT; m.language_option.value = m.ENGLISH; check("highlight in English", m.wanted_banner_text().startswith("FILTER ACTIVE: HIGHLIGHTING"), True); m.filter_mode.value = m.MODE_HIDE
+m.count_gear_left = real_left; m.hidden_by_us.clear()
+real_mods = sys.modules.get("bl4_mod_menu.uilink"); sys.modules["bl4_mod_menu.uilink"] = types.SimpleNamespace(status=lambda: {"state": "next_start"})
+check("notice in English", m.wanted_menu_notice(), "Restart the game to turn on the mod menu (F7)")
+m.language_option.value = m.POLISH; check("notice in Polish", m.wanted_menu_notice(), "Uruchom grę ponownie, aby włączyć menu modów (F7)")
+if real_mods is None: del sys.modules["bl4_mod_menu.uilink"]
+else: sys.modules["bl4_mod_menu.uilink"] = real_mods
+
+# Reading Steam's setting
+steam_dir = Path(tempfile.mkdtemp()); game_dir = steam_dir / "common" / "Borderlands 4"; game_dir.mkdir(parents=True)
+check("no manifest, no answer", m.steam_language(game_dir), None)
+(steam_dir / f"appmanifest_{m.STEAM_APP_ID}.acf").write_text('"AppState"\n{\n\t"UserConfig"\n\t{\n\t\t"language"\t\t"polish"\n\t}\n}\n', encoding="utf8")
+check("reads the manifest", m.steam_language(game_dir), "polish")
+(steam_dir / f"appmanifest_{m.STEAM_APP_ID}.acf").write_text('"AppState"\n{\n}\n', encoding="utf8")
+check("no language in it", m.steam_language(game_dir), None)
+shutil.rmtree(steam_dir, ignore_errors=True)
+
+# A settings file saved by this version, read back from the real mods_base code
+m.language_option.value = m.ENGLISH
+saved_values = {}
+for option in walk(mod.options):
+    value = option._to_json() if hasattr(option, "_to_json") and not hasattr(option, "children") else ...
+    if value is not ...: saved_values[option.identifier] = value
+check("the language is in what's saved", saved_values.get("Language"), m.ENGLISH)
+check("what's saved is plain text", json.dumps(saved_values)[:1], "{")
+m.language_option.value = m.LANGUAGE_AUTO
+m.language_option._from_json(saved_values["Language"]); check("and comes back after a restart", (m.language_option.key, m.shown_language), (m.ENGLISH, "en"))
+m.set_game_language("pl"); check("still over the game's", m.shown_language, "en")
+# Through the real settings code and a real file
+m.language_option.value = m.ENGLISH; m.filter_mode.value = m.MODE_HIGHLIGHT; mod.save_settings()
+on_disk = json.loads(Path(mod.settings_file).read_text(encoding="utf8"))
+def find_saved(tree, name):
+    if name in tree: return tree[name]
+    return next((v for v in (find_saved(c, name) for c in tree.values() if isinstance(c, dict)) if v is not None), None)
+check("file holds the language", find_saved(on_disk, "Language"), m.ENGLISH); check("and the mode by meaning", find_saved(on_disk, "Filter Mode"), m.MODE_HIGHLIGHT)
+m.language_option.value = m.POLISH; m.filter_mode.value = m.MODE_HIDE; mod.load_settings()
+check("file loads back", (m.language_option.key, m.shown_language, m.filter_mode.key, m.filter_mode.value), (m.ENGLISH, "en", m.MODE_HIGHLIGHT, "Highlight"))
+m.language_option.value = m.LANGUAGE_AUTO; m.filter_mode.value = m.MODE_HIDE; m.protected_rarity.value = m.LEGENDARY; m.radar_place.value = m.RADAR_GAME
 
 print("FAILS:", fails)
 sys.exit(1 if fails else 0)

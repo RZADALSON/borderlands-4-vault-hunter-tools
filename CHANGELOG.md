@@ -1,5 +1,17 @@
 # Zmiany
 
+## 1.5.0
+
+- Nowa nazwa: Borderlands 4 Loot Filter. Starsza wersja jest podmieniana przy instalacji, a ustawienia zostają.
+- Język angielski: menu, napisy w grze i instalator. Domyślnie mod używa języka gry, a wybór w `Język / Language`
+  zostaje zapisany.
+- Instalator w dwóch wersjach językowych: `-PL` i `-EN`.
+
+## 1.4.1
+
+- Znaczniki na radarze gry są rysowane w każdej klatce, z przewidywaniem ruchu między odczytami.
+- Domyślny zasięg radaru to 40 m zamiast 100 m, bo znaczniki były za blisko środka.
+
 ## 1.4.0
 
 - Znaczniki itemów na radarze samej gry, w kolorach rzadkości. W trybie ukrywania pokazują sprzęt, który jeszcze leży.

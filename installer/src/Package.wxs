@@ -6,8 +6,8 @@
            Version="$(ProductVersion)"
            UpgradeCode="6D2F0A57-3C1E-4F4B-9A86-0C5A7E41B2D3"
            Scope="perMachine"
-           Language="1045"
-           Codepage="1250"
+           Language="$(Lang)"
+           Codepage="$(Codepage)"
            Compressed="yes">
     <MajorUpgrade DowngradeErrorMessage="!(loc.NewerInstalled)" />
     <MediaTemplate EmbedCab="yes" />
@@ -17,7 +17,7 @@
     <Property Id="REINSTALLMODE" Value="amus" />
 
     <Property Id="ARPNOMODIFY" Value="1" />
-    <Property Id="ARPURLINFOABOUT" Value="https://github.com/RZADALSON/bl4-ground-item-hider" />
+    <Property Id="ARPURLINFOABOUT" Value="https://github.com/RZADALSON/borderlands-4-loot-filter" />
     <Property Id="ARPPRODUCTICON" Value="ProductIcon" />
     <Icon Id="ProductIcon" SourceFile="$(IconFile)" />
     <Property Id="VCREDIST_MINOR" Value="$(VcRedistMinor)" />

@@ -1,9 +1,14 @@
-# Ground Item Hider dla Borderlands 4
+# Borderlands 4 Loot Filter
+
+**English:** a loot filter for Borderlands 4 with an MSI installer. Download
+`Borderlands4LootFilter-Setup-*-EN.msi` from [Releases](../../releases), close the game, run it and pick the game's
+folder. Start the game, restart it when it asks you to, then press F7. The filter hides or highlights the items you
+choose, and follows the game's language (Polish or English) unless you pick one under `Język / Language`.
 
 Filtr lootu do Borderlands 4 z instalatorem MSI. Wskazujesz folder gry, a resztę instalator robi sam.
 
-> **Status:** część wersji 1.4.0 nie była jeszcze sprawdzona w grze: znaczniki na radarze gry, odczyt firmware z części,
-> blokada podnoszenia, wykrywanie wyrzuconych itemów, filtr poziomu i aktualizacja przez ten instalator. Przed instalacją
+> **Status:** część funkcji nie była jeszcze sprawdzona w grze: wybór języka i angielskie menu (1.5.0), znaczniki na radarze
+> gry, blokada podnoszenia, wykrywanie wyrzuconych itemów, filtr poziomu i aktualizacja przez ten instalator. Przed instalacją
 > zamknij grę. Starsza wersja zostanie podmieniona, a Twoje ustawienia zostaną.
 
 ## Co potrafi
@@ -17,14 +22,15 @@ Filtr lootu do Borderlands 4 z instalatorem MSI. Wskazujesz folder gry, a reszt�
 - **Poziom i amunicja:** ukrywanie sprzętu poniżej wybranego poziomu oraz amunicji do wybranych broni.
 - **Wybór firmware:** decydujesz, który z 24 zestawów jest zawsze pokazywany lub podświetlany.
 - **Napis `FILTR AKTYWNY`** w prawym górnym rogu, gdy filtr działa. Pokazuje też liczbę ukrytych itemów.
-- **Ustawienia w grze:** F7 otwiera menu po polsku. F8 chwilowo wstrzymuje filtr.
+- **Ustawienia w grze:** F7 otwiera menu po polsku lub angielsku, zależnie od języka gry. Wybór w `Język / Language` zostaje
+  zapisany. F8 chwilowo wstrzymuje filtr.
 
 Domyślnie ukrywane są itemy białe, zielone i niebieskie. Sprzęt z firmware, anointmentem i shiny zawsze
 zostaje widoczny, chyba że wyłączysz to w opcjach.
 
 ## Instalacja
 
-1. Pobierz `GroundItemHider-Setup-*.msi` z [Releases](../../releases).
+1. Pobierz `Borderlands4LootFilter-Setup-*-PL.msi` z [Releases](../../releases).
 2. Zamknij Borderlands 4 i uruchom instalator.
 3. Sprawdź wykryty folder gry albo wskaż ten z plikiem `Borderlands4.exe`.
 4. Uruchom grę. Pierwszy start przygotowuje menu, a w prawym górnym rogu pojawi się prośba o restart.
@@ -58,7 +64,7 @@ wymagać nowej wersji. W razie problemów ze startem gry usuń `OakGame\Binaries
 
 ## Odinstalowanie
 
-Ustawienia Windows → Zainstalowane aplikacje → **Ground Item Hider dla Borderlands 4**.
+Ustawienia Windows → Zainstalowane aplikacje → **Borderlands 4 Loot Filter**.
 Twoje ustawienia modów i mody doinstalowane osobno zostają w folderze `sdk_mods`.
 
 Po aktualizacji gry SDK może przestać działać, dopóki nie wyjdzie jego nowa wersja. Jeśli gra zacznie się

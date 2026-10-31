@@ -1,5 +1,5 @@
 """
-Ground Item Hider: a client-side loot filter for Borderlands 4.
+Borderlands 4 Loot Filter: a client-side loot filter for Borderlands 4.
 
 Instead of teleporting or deleting loot, this only hides it, and stops it being picked up. The
 pickup stays exactly where it dropped, so turning the filter off brings it straight back.
@@ -32,10 +32,13 @@ import re
 import struct
 import sys
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, NamedTuple
 
 from mods_base import (
+    MODS_DIR,
     BaseOption,
     BoolOption,
     ButtonOption,
@@ -302,9 +305,80 @@ AMMO_MATERIAL_NAMES = {
 
 NIAGARA_FALSE = bytes((0x00, 0x00, 0x00, 0x00))
 
+# Everything the player reads comes in Polish and English, in that order.
+Text = tuple[str, str]
+POLISH = "pl"
+ENGLISH = "en"
+LANGUAGE_AUTO = "auto"
+LANGUAGE_LABELS: dict[str, Text] = {
+    LANGUAGE_AUTO: ("Automatycznie (jak w grze)", "Automatic (same as the game)"),
+    POLISH: ("Polski", "Polski"),
+    ENGLISH: ("English", "English"),
+}
+STEAM_APP_ID = 1285190
+shown_language: str = ENGLISH
+# What the game itself is set to, if we've been able to tell
+game_language: str | None = None
+
+
+def say(text: Text) -> str:
+    """Picks the text for the language in use."""
+    return text[0] if shown_language == POLISH else text[1]
+
+
+class LocalizedSpinner(SpinnerOption):
+    """
+    A choice whose entries read in the player's language. Its `key` stays the same whatever the
+    language: that's what the code checks, and what the settings file keeps.
+    """
+
+    labels: dict[str, Text] = {}  # noqa: RUF012
+    key: str = ""
+    after_change: Callable[[], None] | None = None
+
+    def key_for(self, value: str) -> str | None:
+        """Finds which entry a value means. It may be in any language, or from an older version."""
+        for key, texts in self.labels.items():
+            if value == key or value in texts:
+                return key
+        return None
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        if name != "value" or not self.labels:
+            super().__setattr__(name, value)
+            return
+        self.key = self.key_for(value) or self.key
+        super().__setattr__("value", say(self.labels[self.key]))
+        if self.after_change is not None:
+            self.after_change()
+
+    def _to_json(self) -> str:
+        return self.key
+
+    def _from_json(self, value: Any) -> None:
+        if self.key_for(str(value)) is None:
+            super()._from_json(value)  # Which logs that it's sticking with the default
+        else:
+            self.value = str(value)
+
+    def relabel(self) -> None:
+        """Puts what's shown in the current language, which is no change to what's chosen."""
+        self.choices = [say(text) for text in self.labels.values()]
+        object.__setattr__(self, "value", say(self.labels[self.key]))
+
+
+def localized_spinner(identifier: str, default: str, labels: dict[str, Text]) -> LocalizedSpinner:
+    """Creates a choice from its entries' keys and what they're called."""
+    option = LocalizedSpinner(identifier, default, list(labels))
+    option.key = default
+    option.labels = labels
+    option.relabel()
+    return option
+
+
 # The on screen warning, plain UMG built in code like the notices in bl4-fix by flameaway.
 # https://github.com/flameaway/bl4-fix
-BANNER_TEXT = "FILTR AKTYWNY"
+BANNER_TEXT: Text = ("FILTR AKTYWNY", "FILTER ACTIVE")
 BANNER_NAME = "GroundItemHider_Banner"
 BANNER_Z_ORDER = 20
 BANNER_MARGIN = 24.0
@@ -317,49 +391,59 @@ BANNER_BACKGROUND = (0.0012, 0.0052, 0.0098, 0.88)
 BANNER_COLOR = (1.0, 0.45, 0.02, 1.0)
 BANNER_COLOR_HIGHLIGHT = (1.0, 0.0, 0.45, 1.0)
 BANNER_TEXT_COLOR = (0.776, 0.693, 0.617, 1.0)
-BANNER_TEXT_HIGHLIGHT = "FILTR AKTYWNY: PODSWIETLANIE"
-RESTART_NOTICE_TEXT = "Uruchom grę ponownie, aby włączyć menu modów (F7)"
+BANNER_TEXT_HIGHLIGHT: Text = ("FILTR AKTYWNY: PODSWIETLANIE", "FILTER ACTIVE: HIGHLIGHTING")
+RESTART_NOTICE_TEXT: Text = ("Uruchom grę ponownie, aby włączyć menu modów (F7)", "Restart the game to turn on the mod menu (F7)")
 # What the mod menu's status means for the player. Nothing to say about the rest.
-MENU_NOTICES = {
+MENU_NOTICES: dict[str, Text] = {
     "next_start": RESTART_NOTICE_TEXT,
-    "game_changed": "Patch gry: menu modów czeka na aktualizację, F7 otworzy prosty panel",
-    "conflict": "Inny mod blokuje menu modów, F7 otworzy prosty panel",
+    "game_changed": (
+        "Patch gry: menu modów czeka na aktualizację, F7 otworzy prosty panel",
+        "Game patched: the mod menu is waiting for an update, F7 opens a simple panel",
+    ),
+    "conflict": (
+        "Inny mod blokuje menu modów, F7 otworzy prosty panel",
+        "Another mod is blocking the mod menu, F7 opens a simple panel",
+    ),
 }
 RESTART_NOTICE_FONT_SIZE = 13
 RESTART_NOTICE_TOP = 62.0  # Leaves room for the banner above it
 
-MODE_HIDE = "Ukrywanie"
-MODE_HIGHLIGHT = "Podświetlanie"
+MODE_HIDE = "hide"
+MODE_HIGHLIGHT = "highlight"
+MODE_LABELS: dict[str, Text] = {
+    MODE_HIDE: ("Ukrywanie", "Hide"),
+    MODE_HIGHLIGHT: ("Podświetlanie", "Highlight"),
+}
 
 # What's shown in the menus. Option identifiers stay in English, those are the settings file's keys.
-RARITY_LABELS = {
-    COMMON: "Pospolite",
-    UNCOMMON: "Niepospolite",
-    RARE: "Rzadkie",
-    EPIC: "Epickie",
-    LEGENDARY: "Legendarne",
-    PEARLESCENT: "Perłowe",
+RARITY_LABELS: dict[str, Text] = {
+    COMMON: ("Pospolite", "Common"),
+    UNCOMMON: ("Niepospolite", "Uncommon"),
+    RARE: ("Rzadkie", "Rare"),
+    EPIC: ("Epickie", "Epic"),
+    LEGENDARY: ("Legendarne", "Legendary"),
+    PEARLESCENT: ("Perłowe", "Pearlescent"),
 }
-GEAR_TYPE_LABELS = {
-    PISTOL: "Pistolety",
-    SMG: "Pistolety maszynowe",
-    ASSAULT_RIFLE: "Karabiny szturmowe",
-    SHOTGUN: "Strzelby",
-    SNIPER: "Karabiny snajperskie",
-    HEAVY_WEAPON: "Broń ciężka",
-    SHIELD: "Tarcze",
-    GRENADE: "Granaty",
-    REPAIR_KIT: "Zestawy naprawcze",
-    ENHANCEMENT: "Ulepszenia",
-    CLASS_MOD: "Mody klasowe",
+GEAR_TYPE_LABELS: dict[str, Text] = {
+    PISTOL: ("Pistolety", "Pistols"),
+    SMG: ("Pistolety maszynowe", "SMGs"),
+    ASSAULT_RIFLE: ("Karabiny szturmowe", "Assault rifles"),
+    SHOTGUN: ("Strzelby", "Shotguns"),
+    SNIPER: ("Karabiny snajperskie", "Sniper rifles"),
+    HEAVY_WEAPON: ("Broń ciężka", "Heavy weapons"),
+    SHIELD: ("Tarcze", "Shields"),
+    GRENADE: ("Granaty", "Grenades"),
+    REPAIR_KIT: ("Zestawy naprawcze", "Repair kits"),
+    ENHANCEMENT: ("Ulepszenia", "Enhancements"),
+    CLASS_MOD: ("Mody klasowe", "Class mods"),
 }
-PICKUP_LABELS = {
-    AMMO: "Amunicja",
-    HEALTH: "Zdrowie",
-    MONEY: "Pieniądze",
-    ERIDIUM: "Eridium",
-    SHIELD_BOOSTER: "Wzmocnienia tarczy",
-    ARMOR_SHARD: "Odłamki pancerza",
+PICKUP_LABELS: dict[str, Text] = {
+    AMMO: ("Amunicja", "Ammo"),
+    HEALTH: ("Zdrowie", "Health"),
+    MONEY: ("Pieniądze", "Money"),
+    ERIDIUM: ("Eridium", "Eridium"),
+    SHIELD_BOOSTER: ("Wzmocnienia tarczy", "Shield boosters"),
+    ARMOR_SHARD: ("Odłamki pancerza", "Armor shards"),
 }
 
 # What the loot beam (NS_FX_Item_Loot_Beams) is told to do. The colour has no upper limit, anything
@@ -407,6 +491,10 @@ HUD_MARKER_COLORS = {
     PEARLESCENT: "#4dffc4",
 }
 HUD_MARKER_DEFAULT = "#ff2a8a"
+HUD_MAX_REPORTS = 200
+# A few raw identities in the log, to find where the item's level is kept
+IDENTITIES_TO_LOG = 8
+IDENTITY_SIZE = 0xD8
 FIRMWARE_FAILURES_TO_LOG = 5
 # Telling what you dropped: your backpack shrinks, and a new pickup shows up close by. The game does
 # flag these (EInventoryItemFlags::DroppedByPlayer), but only on the inventory item, not on a pickup.
@@ -422,9 +510,14 @@ ROUND_HALF_HEIGHT = 1
 RADAR_Z_ORDER = 19
 RADAR_SIZE = 160.0
 # The game has its own round radar in the top right, this one has to stay clear of it
-RADAR_GAME = "Radar gry"
-RADAR_LEFT = "Lewy górny róg"
-RADAR_RIGHT = "Prawa strona, pod radarem gry"
+RADAR_GAME = "game"
+RADAR_LEFT = "left"
+RADAR_RIGHT = "right"
+RADAR_LABELS: dict[str, Text] = {
+    RADAR_GAME: ("Radar gry", "The game's radar"),
+    RADAR_LEFT: ("Lewy górny róg", "Top left corner"),
+    RADAR_RIGHT: ("Prawa strona, pod radarem gry", "Right side, under the game's radar"),
+}
 RADAR_TOP_LEFT = 24.0
 RADAR_TOP_RIGHT = 270.0
 RADAR_ARROW = (
@@ -432,6 +525,8 @@ RADAR_ARROW = (
     "enemy_radar_circle_player_arrow.enemy_radar_circle_player_arrow"
 )
 RADAR_INTERVAL = 0.05
+# How often the game's radar gets fresh data to work from, it fills in the frames between by itself
+HUD_REFRESH_INTERVAL = 0.03
 RADAR_MARKER_SIZE = 14.0
 RADAR_MAX_MARKERS = 32
 RADAR_BACKGROUND = (0.0012, 0.0052, 0.0098, 0.75)
@@ -468,16 +563,16 @@ pickup_options = {
     for name in (AMMO, HEALTH, MONEY, ERIDIUM, SHIELD_BOOSTER, ARMOR_SHARD)
 }
 
-NO_PROTECTION = "Wyłączona"
-protected_rarity = SpinnerOption(
+NO_PROTECTION = "off"
+protected_rarity = localized_spinner(
     "Protect Rarity And Above",
-    RARITY_LABELS[LEGENDARY],
-    [NO_PROTECTION, RARITY_LABELS[EPIC], RARITY_LABELS[LEGENDARY], RARITY_LABELS[PEARLESCENT]],
-    display_name="Chroń tę rzadkość i wyższe",
-    description=(
-        "Sprzęt tej rzadkości i lepszy ignoruje filtry firm i typów, więc ukrycie Jakobsa nie schowa"
-        " legendarnego Jakobsa. Filtr rzadkości nadal działa."
-    ),
+    LEGENDARY,
+    {
+        NO_PROTECTION: ("Wyłączona", "Off"),
+        EPIC: RARITY_LABELS[EPIC],
+        LEGENDARY: RARITY_LABELS[LEGENDARY],
+        PEARLESCENT: RARITY_LABELS[PEARLESCENT],
+    },
 )
 keep_firmware = BoolOption(
     "Always Show Firmware",
@@ -494,15 +589,7 @@ keep_shiny = BoolOption(
     True,
     description="Never hide shiny gear, whatever filters match it.",
 )
-filter_mode = SpinnerOption(
-    "Filter Mode",
-    MODE_HIDE,
-    [MODE_HIDE, MODE_HIGHLIGHT],
-    description=(
-        "Hide: selected items disappear from the ground. Highlight: everything drops as normal, and"
-        " the items selected under Highlight Filters get a strong beam and a radar marker."
-    ),
-)
+filter_mode = localized_spinner("Filter Mode", MODE_HIDE, MODE_LABELS)
 
 ammo_type_options = {name: BoolOption(name, False) for name in AMMO_MATERIAL_NAMES.values()}
 
@@ -563,14 +650,14 @@ show_radar = BoolOption(
     True,
     description="Show highlighted items on a small radar in the top right, which turns with you.",
 )
-radar_place = SpinnerOption("Radar Markers", RADAR_GAME, [RADAR_GAME, RADAR_LEFT, RADAR_RIGHT])
+radar_place = localized_spinner("Radar Markers", RADAR_GAME, RADAR_LABELS)
 show_left_on_radar = BoolOption("Show Gear Left On Radar", True)
 radar_range = SliderOption(
-    identifier="Radar Range",
-    value=100.0,
-    min_value=25.0,
-    max_value=500.0,
-    step=25.0,
+    identifier="Radar Range Metres",
+    value=40.0,
+    min_value=10.0,
+    max_value=200.0,
+    step=5.0,
     is_integer=False,
     description="Metres to the edge of the radar. Items further away stay on its edge.",
 )
@@ -673,6 +760,9 @@ drop_window_until: float = 0.0
 scan_error_logged: bool = False
 hud_radar_registered: bool = False
 hud_radar_found: bool | None = None
+hud_reports: int = 0
+last_hud_refresh: float = 0.0
+identities_logged: int = 0
 serials_read: int = 0
 firmware_read_failures: int = 0
 firmware_read_successes: int = 0
@@ -757,7 +847,7 @@ def color_kind(color: tuple[float, ...] | None, key: int) -> str | None:
     kind = classify_color(color)
     if kind is None and color not in reported_colors:
         reported_colors.add(color)
-        warning(f"[Ground Item Hider] Unknown beam colour, ignoring the item: {color}")
+        warning(f"[Borderlands 4 Loot Filter] Unknown beam colour, ignoring the item: {color}")
     return kind
 
 
@@ -804,9 +894,9 @@ def get_character(body: str) -> str | None:
 
 def is_protected(rarity: str) -> bool:
     """Checks if a rarity is exempt from the manufacturer and item type filters."""
-    if protected_rarity.value == NO_PROTECTION:
+    if protected_rarity.key == NO_PROTECTION:
         return False
-    protected = next(key for key, label in RARITY_LABELS.items() if label == protected_rarity.value)
+    protected = protected_rarity.key
     return RARITY_ORDER.index(rarity) >= RARITY_ORDER.index(protected)
 
 
@@ -876,6 +966,17 @@ def read_item_identity(item: UObject) -> SerialInfo:
             if firmware is not None:
                 return SerialInfo(item_type, firmware)
     return SerialInfo(item_type)
+
+
+def log_identity(item: UObject, body: str) -> None:
+    """Puts a few raw identities in the log. Their serials are empty on the ground, so the level isn't there."""
+    global identities_logged  # noqa: PLW0603
+
+    if identities_logged >= IDENTITIES_TO_LOG:
+        return
+    identities_logged += 1
+    raw = read_memory(item_key(item) + PICKUP_IDENTITY, IDENTITY_SIZE)
+    info(f"[Borderlands 4 Loot Filter] Identity {body[-60:]}: {raw.hex() if raw else None}")
 
 
 def read_item_serial(item: UObject) -> str | None:
@@ -1046,7 +1147,7 @@ def read_serial_info(item: UObject, has_firmware: bool) -> SerialInfo:
     ):
         firmware_problem_logged = True
         warning(
-            "[Ground Item Hider] Can't work out which firmware items have, a game update may have"
+            "[Borderlands 4 Loot Filter] Can't work out which firmware items have, a game update may have"
             " moved it. Gear with firmware stays visible.",
         )
     return parsed
@@ -1065,6 +1166,8 @@ def read_item_info(item: UObject, key: int) -> ItemInfo:
     firmware = beam_flag(values, BEAM_FIRMWARE_PARAM)
     is_gear = "/Gear/" in body
     parsed = read_serial_info(item, firmware) if is_gear else SerialInfo()
+    if is_gear:
+        log_identity(item, body)
     type_manufacturer, type_gear = ITEM_TYPES.get(parsed.item_type, (None, None))
     character = CLASS_MOD_TYPES.get(parsed.item_type)
     return ItemInfo(
@@ -1284,7 +1387,7 @@ def boost_beam(beam: UObject, key: int, kind: str | None) -> None:
     actual = read_beam_color(beam)
     if not beam_error_logged and (actual is None or not colors_match(actual, new_color)):
         beam_error_logged = True
-        warning(f"[Ground Item Hider] The beam didn't take its new colour: {actual}")
+        warning(f"[Borderlands 4 Loot Filter] The beam didn't take its new colour: {actual}")
 
 
 def restore_beam(beam: UObject | None, key: int) -> None:
@@ -1336,7 +1439,7 @@ def get_actors(pc: UObject, class_name: str) -> list[UObject]:
         except Exception as ex:  # noqa: BLE001
             if not actor_search_failed:
                 actor_search_failed = True
-                warning(f"[Ground Item Hider] Falling back to the slow search: {ex}")
+                warning(f"[Borderlands 4 Loot Filter] Falling back to the slow search: {ex}")
     return list(find_all(class_name, False))
 
 
@@ -1355,7 +1458,7 @@ def get_vending_machine_items(pc: UObject, new_items: bool = False) -> set[int]:
             if is_live_actor(machine) and (item := machine.GetIOTDForPlayer(pc)):
                 items.add(item._get_address())  # noqa: SLF001
         except Exception as ex:  # noqa: BLE001, PERF203
-            warning(f"[Ground Item Hider] Skipping vending machine: {ex}")
+            warning(f"[Borderlands 4 Loot Filter] Skipping vending machine: {ex}")
     vending_items = items
     return items
 
@@ -1374,7 +1477,7 @@ def get_ground_items(pc: UObject) -> list[UObject]:
             ):
                 items.append(item)
         except Exception as ex:  # noqa: BLE001
-            warning(f"[Ground Item Hider] Skipping pickup: {ex}")
+            warning(f"[Borderlands 4 Loot Filter] Skipping pickup: {ex}")
     return items
 
 
@@ -1446,7 +1549,7 @@ def handle_item(
 
     hide = (
         not paused
-        and filter_mode.value == MODE_HIDE
+        and filter_mode.key == MODE_HIDE
         and should_hide(info)
         and not (show_dropped.value and key in dropped_items)
     )
@@ -1462,7 +1565,7 @@ def handle_item(
         set_item_hidden(item, False)
         hidden_by_us.discard(key)
 
-    highlight = not paused and filter_mode.value == MODE_HIGHLIGHT and should_highlight(info)
+    highlight = not paused and filter_mode.key == MODE_HIGHLIGHT and should_highlight(info)
     if highlight:
         beam = item.AttractEffectComponent
         if beam:
@@ -1523,7 +1626,7 @@ def apply_filter() -> None:
     if check_boosts:
         last_boost_check = now
     # Only hiding needs this, and it's the most expensive thing an idle scan does
-    if show_dropped.value and filter_mode.value == MODE_HIDE and not paused:
+    if show_dropped.value and filter_mode.key == MODE_HIDE and not paused:
         watch_for_drops(pc, now)
 
     list_start = time.perf_counter()
@@ -1586,7 +1689,7 @@ def apply_filter() -> None:
         except Exception as ex:  # noqa: BLE001
             # It's probably on its way out. Either way, not worth a line in the log every scan.
             skip_until[item_key(item)] = now + SKIPPED_ITEM_RETRY
-            warning(f"[Ground Item Hider] Skipping pickup: {ex}")
+            warning(f"[Borderlands 4 Loot Filter] Skipping pickup: {ex}")
 
     # Forget about anything which was picked up or unloaded
     hidden_by_us.intersection_update(alive)
@@ -1600,7 +1703,7 @@ def apply_filter() -> None:
 
     # Highlighting marks what you picked. When hiding, it's whatever's left to go and find.
     marked = {}
-    if not paused and filter_mode.value == MODE_HIGHLIGHT:
+    if not paused and filter_mode.key == MODE_HIGHLIGHT:
         marked = highlight_pointers
     elif not paused and show_left_on_radar.value:
         marked = visible_gear_pointers
@@ -1648,7 +1751,7 @@ def timed_scan() -> None:
     except Exception as ex:  # noqa: BLE001
         if not scan_error_logged:
             scan_error_logged = True
-            warning(f"[Ground Item Hider] A scan failed, trying again: {ex}")
+            warning(f"[Borderlands 4 Loot Filter] A scan failed, trying again: {ex}")
     last_scan_seconds = time.perf_counter() - start
     taken = last_scan_seconds * 1000.0
 
@@ -1659,10 +1762,10 @@ def timed_scan() -> None:
     now = time.monotonic()
     if taken >= SLOW_SCAN_MS and now - last_slow_log >= SLOW_SCAN_LOG_INTERVAL:
         last_slow_log = now
-        info(f"[Ground Item Hider] Slow scan: {taken:.1f} ms, {len(item_infos)} items known")
+        info(f"[Borderlands 4 Loot Filter] Slow scan: {taken:.1f} ms, {len(item_infos)} items known")
     if now - last_stats_log >= STATS_LOG_INTERVAL:
         last_stats_log = now
-        info(f"[Ground Item Hider] {stats_text()}")
+        info(f"[Borderlands 4 Loot Filter] {stats_text()}")
 
 
 def new_widget(path: str, outer: UObject) -> UObject:
@@ -1678,15 +1781,25 @@ def linear_color(rgba: tuple[float, float, float, float]) -> WrappedStruct:
 def wanted_banner_text() -> str:
     """Gets what the warning should currently say."""
     left = count_gear_left()
-    if filter_mode.value == MODE_HIGHLIGHT:
+    if filter_mode.key == MODE_HIGHLIGHT:
         count = len(highlight_pointers)
         if not count and not left:
-            return BANNER_TEXT_HIGHLIGHT
-        return f"{BANNER_TEXT_HIGHLIGHT}: {count}, do zebrania {left}"
+            return say(BANNER_TEXT_HIGHLIGHT)
+        return say(
+            (
+                f"{BANNER_TEXT_HIGHLIGHT[0]}: {count}, do zebrania {left}",
+                f"{BANNER_TEXT_HIGHLIGHT[1]}: {count}, to collect {left}",
+            ),
+        )
     count = len(hidden_by_us)
     if not count and not left:
-        return BANNER_TEXT
-    return f"{BANNER_TEXT}: ukryte {count}, do zebrania {left}"
+        return say(BANNER_TEXT)
+    return say(
+        (
+            f"{BANNER_TEXT[0]}: ukryte {count}, do zebrania {left}",
+            f"{BANNER_TEXT[1]}: hidden {count}, to collect {left}",
+        ),
+    )
 
 
 def set_game_font(text: UObject, size: int = BANNER_FONT_SIZE) -> None:
@@ -1711,7 +1824,8 @@ def wanted_menu_notice() -> str | None:
     if status is None:
         return None
     try:
-        return MENU_NOTICES.get(status().get("state"))
+        notice = MENU_NOTICES.get(status().get("state"))
+        return say(notice) if notice is not None else None
     except Exception:  # noqa: BLE001
         return None
 
@@ -1733,7 +1847,7 @@ def add_restart_notice(tree: UObject, canvas: UObject) -> tuple[UObject, UObject
     text = new_widget("/Script/UMG.TextBlock", tree)
     set_game_font(text, RESTART_NOTICE_FONT_SIZE)
     text.SetColorAndOpacity(make_struct("SlateColor", SpecifiedColor=linear_color(BANNER_COLOR)))
-    text.SetText(RESTART_NOTICE_TEXT)
+    text.SetText(say(RESTART_NOTICE_TEXT))
     text.SetVisibility(HIT_TEST_INVISIBLE)
     box.SetContent(text)
     box.SetVisibility(COLLAPSED)
@@ -1774,7 +1888,7 @@ def build_banner(pc: UObject) -> None:
     box.SetContent(column)
 
     # A thin line along the top, in the mode's colour
-    highlighting = filter_mode.value == MODE_HIGHLIGHT
+    highlighting = filter_mode.key == MODE_HIGHLIGHT
     accent = new_widget("/Script/UMG.Border", tree)
     accent.SetBrushColor(linear_color(BANNER_COLOR_HIGHLIGHT if highlighting else BANNER_COLOR))
     column.AddChild(accent)
@@ -1810,32 +1924,41 @@ def remove_banner() -> None:
         widget.RemoveFromParent()
 
 
-def hud_radar_state() -> dict[str, list]:
-    """Says where the markers on the game's radar go. Runs when the HUD page asks."""
+def hud_radar_state() -> dict[str, Any]:
+    """
+    Says where things are for the game's radar. Runs when the HUD page asks. The page works out where
+    the markers go, as it can do that every frame.
+    """
     pc = get_pc()
     pawn = pc.Pawn if pc else None
-    if not pawn or not show_radar.value or radar_place.value != RADAR_GAME or not radar_items:
+    if not pawn or not show_radar.value or radar_place.key != RADAR_GAME or not radar_items:
         return {"m": []}
 
     player = pawn.K2_GetActorLocation()
-    offsets = [(x - player.X, y - player.Y, kind) for x, y, kind in radar_items]
-    offsets.sort(key=lambda offset: math.hypot(offset[0], offset[1]))
-
-    yaw = float(pc.GetControlRotation().Yaw)
-    range_units = radar_range.value * 100.0
-    markers = []
-    for offset_x, offset_y, kind in offsets[:RADAR_MAX_MARKERS]:
-        x, y = radar_fraction(offset_x, offset_y, yaw, range_units)
-        markers.append([round(x, 3), round(y, 3), HUD_MARKER_COLORS.get(kind, HUD_MARKER_DEFAULT)])
-    return {"m": markers}
+    nearest = sorted(radar_items, key=lambda item: math.hypot(item[0] - player.X, item[1] - player.Y))
+    return {
+        "p": [round(player.X, 1), round(player.Y, 1)],
+        "y": round(float(pc.GetControlRotation().Yaw), 2),
+        "r": radar_range.value * 100.0,
+        "m": [
+            [round(x, 1), round(y, 1), HUD_MARKER_COLORS.get(kind, HUD_MARKER_DEFAULT)]
+            for x, y, kind in nearest[:RADAR_MAX_MARKERS]
+        ],
+    }
 
 
 def on_hud_radar_report(action: dict[str, Any]) -> None:
-    """Hears from the HUD page if it found the game's radar."""
-    global hud_radar_found  # noqa: PLW0603
+    """Hears from the HUD page if it found the game's radar, and what it's learned about it."""
+    global hud_radar_found, hud_reports  # noqa: PLW0603
 
-    hud_radar_found = bool(action.get("found"))
-    info(f"[Ground Item Hider] Game's radar {'found' if hud_radar_found else 'not found'} on the HUD")
+    if "lang" in action:
+        set_game_language(str(action["lang"]))
+    elif "found" in action:
+        hud_radar_found = bool(action.get("found"))
+        info(f"[Borderlands 4 Loot Filter] Game's radar {'found' if hud_radar_found else 'not found'} on the HUD")
+    elif hud_reports < HUD_MAX_REPORTS:
+        hud_reports += 1
+        info(f"[Borderlands 4 Loot Filter] HUD {action.get('label')}: {str(action.get('text'))[:2000]}")
 
 
 def get_menu_link() -> Any:
@@ -1863,9 +1986,9 @@ def register_hud_radar() -> None:
         return
     hud_radar_registered = True
     try:
-        link.register(HUD_RADAR_KEY, HUD_RADAR_SCRIPT, hud_radar_state, on_hud_radar_report, views=(link.HUD,), mod="Ground Item Hider")
+        link.register(HUD_RADAR_KEY, HUD_RADAR_SCRIPT, hud_radar_state, on_hud_radar_report, views=(link.HUD,), mod="Borderlands 4 Loot Filter")
     except Exception as ex:  # noqa: BLE001
-        warning(f"[Ground Item Hider] Couldn't use the game's radar: {ex}")
+        warning(f"[Borderlands 4 Loot Filter] Couldn't use the game's radar: {ex}")
 
 
 def unregister_hud_radar() -> None:
@@ -1877,7 +2000,7 @@ def unregister_hud_radar() -> None:
         try:
             link.unregister(HUD_RADAR_KEY)
         except Exception as ex:  # noqa: BLE001
-            warning(f"[Ground Item Hider] Couldn't stop using the game's radar: {ex}")
+            warning(f"[Borderlands 4 Loot Filter] Couldn't stop using the game's radar: {ex}")
     hud_radar_registered = False
     hud_radar_found = None
 
@@ -1922,7 +2045,7 @@ def update_banner(pc: UObject) -> None:
     except Exception as ex:  # noqa: BLE001
         if not banner_error_logged:
             banner_error_logged = True
-            warning(f"[Ground Item Hider] Couldn't show the on screen warning: {ex}")
+            warning(f"[Borderlands 4 Loot Filter] Couldn't show the on screen warning: {ex}")
 
 
 def round_brush(
@@ -1985,7 +2108,7 @@ def build_radar(pc: UObject) -> None:
 
     frame = new_widget("/Script/UMG.CanvasPanel", tree)
     root.AddChild(frame)
-    if radar_place.value == RADAR_RIGHT:
+    if radar_place.key == RADAR_RIGHT:
         place_widget(
             frame,
             (1.0, 0.0),
@@ -2116,14 +2239,14 @@ def log_radar_error(ex: Exception) -> None:
 
     if not radar_error_logged:
         radar_error_logged = True
-        warning(f"[Ground Item Hider] Couldn't show the radar: {ex}")
+        warning(f"[Borderlands 4 Loot Filter] Couldn't show the radar: {ex}")
 
 
 def update_radar(pc: UObject) -> None:
     """Shows the radar in highlight mode. Changing map throws it away, so re-adds it."""
     try:
-        on_game_radar = radar_place.value == RADAR_GAME and game_radar_usable()
-        if paused or filter_mode.value != MODE_HIGHLIGHT or not show_radar.value or on_game_radar:
+        on_game_radar = radar_place.key == RADAR_GAME and game_radar_usable()
+        if paused or filter_mode.key != MODE_HIGHLIGHT or not show_radar.value or on_game_radar:
             remove_radar()
             return
         widget = radar_widget()
@@ -2143,15 +2266,16 @@ def update_radar(pc: UObject) -> None:
 # This runs every frame, Loot Magnet and BLImGui use the same hook as their game thread callback
 @hook("/Script/Engine.CameraModifier:BlueprintModifyCamera", Type.POST_UNCONDITIONAL)
 def on_tick(_obj: UObject, _args: WrappedStruct, _ret: Any, _func: BoundFunction) -> None:
-    global last_scan, last_radar, last_widget_check  # noqa: PLW0603
+    global last_scan, last_radar, last_widget_check, last_hud_refresh  # noqa: PLW0603
 
     now = time.monotonic()
     if now - last_scan < time_until_next_scan():
         # Items don't turn up this often, but you can turn around much faster
-        if now - last_radar >= RADAR_INTERVAL:
-            last_radar = now
+        if now - last_hud_refresh >= HUD_REFRESH_INTERVAL:
+            last_hud_refresh = now
             refresh_hud_radar()
-        if radar_widget() is not None and last_radar == now:
+        if radar_widget() is not None and now - last_radar >= RADAR_INTERVAL:
+            last_radar = now
             pc = get_pc()
             if pc:
                 try:
@@ -2173,12 +2297,7 @@ def on_tick(_obj: UObject, _args: WrappedStruct, _ret: Any, _func: BoundFunction
         register_hud_radar()
 
 
-@keybind(
-    "Toggle Item Hiding",
-    key="F8",
-    display_name="Włącz lub wstrzymaj filtr",
-    description="Na chwilę wyłącza filtr, a kolejne naciśnięcie włącza go z powrotem.",
-)
+@keybind("Toggle Item Hiding", key="F8")
 def toggle_hiding() -> None:
     global paused  # noqa: PLW0603
 
@@ -2188,33 +2307,25 @@ def toggle_hiding() -> None:
     if pc:
         update_banner(pc)
         update_radar(pc)
-    info(f"[Ground Item Hider] {'Showing all loot' if paused else 'Filter back on'}")
+    info(f"[Borderlands 4 Loot Filter] {'Showing all loot' if paused else 'Filter back on'}")
 
 
-@keybind(
-    "Switch Filter Mode",
-    display_name="Przełącz tryb filtra",
-    description="Przełącza między ukrywaniem a podświetlaniem itemów.",
-)
+@keybind("Switch Filter Mode")
 def switch_filter_mode() -> None:
-    filter_mode.value = MODE_HIDE if filter_mode.value == MODE_HIGHLIGHT else MODE_HIGHLIGHT
+    filter_mode.value = MODE_HIDE if filter_mode.key == MODE_HIGHLIGHT else MODE_HIGHLIGHT
     mod.save_settings()
     apply_filter()
     pc = get_pc()
     if pc:
         update_banner(pc)
         update_radar(pc)
-    info(f"[Ground Item Hider] Filter mode: {filter_mode.value}")
+    info(f"[Borderlands 4 Loot Filter] Filter mode: {filter_mode.key}")
 
 
-@keybind(
-    "Print Loot Info",
-    display_name="Wypisz dane o lootcie",
-    description="Wypisuje do konsoli, co filtr widzi na każdym itemie. Przydatne przy problemach.",
-)
+@keybind("Print Loot Info")
 def print_loot_info() -> None:
     items = get_ground_items(get_pc())
-    info(f"[Ground Item Hider] {len(items)} items on the ground, {stats_text()}")
+    info(f"[Borderlands 4 Loot Filter] {len(items)} items on the ground, {stats_text()}")
     for item in items:
         key = item_key(item)
         loot = read_item_info(item, key)
@@ -2245,8 +2356,12 @@ def on_disable() -> None:
         remove_banner()
         remove_radar()
     except Exception as ex:  # noqa: BLE001
-        warning(f"[Ground Item Hider] Couldn't remove the on screen warning: {ex}")
+        warning(f"[Borderlands 4 Loot Filter] Couldn't remove the on screen warning: {ex}")
     unregister_hud_radar()
+
+
+# Every option's texts, for when the language changes
+labelled: list[tuple[Any, Text, Text]] = []
 
 
 def set_all(options: dict[str, BoolOption], value: bool) -> None:
@@ -2263,92 +2378,243 @@ def reset_to_defaults() -> None:
     mod.save_settings()
 
 
+def label(option: Any, name: Text, description: Text) -> Any:
+    """Says what an option is called in the menus. Language changes go through what's kept here."""
+    labelled.append((option, name, description))
+    show_label(option, name, description)
+    return option
+
+
+def show_label(option: Any, name: Text, description: Text) -> None:
+    """Sets what an option is called, in the current language."""
+    option.display_name = option.description_title = say(name)
+    option.description = say(description)
+
+
+def steam_language(game_folder: Path = MODS_DIR.parent) -> str | None:
+    """Reads the language Steam runs the game in, which we can do before anything's on screen."""
+    try:
+        manifest = game_folder.parent.parent / f"appmanifest_{STEAM_APP_ID}.acf"
+        found = re.search(r'"language"\s+"(\w+)"', manifest.read_text(encoding="utf8", errors="replace"))
+    except OSError:
+        return None
+    return found.group(1) if found else None
+
+
+def apply_language() -> None:
+    """Works out which language to use, and puts every text in the menus into it."""
+    global shown_language  # noqa: PLW0603
+
+    chosen = language_option.key
+    shown_language = chosen if chosen != LANGUAGE_AUTO else game_language or ENGLISH
+    for option, name, description in labelled:
+        show_label(option, name, description)
+    for option in (language_option, filter_mode, protected_rarity, radar_place):
+        option.relabel()
+    if "mod" in globals():
+        mod.description = say(MOD_DESCRIPTION)
+
+
+def set_game_language(code: str) -> None:
+    """Takes in what the game's set to. Polish is used for Polish, English for everything else."""
+    global game_language  # noqa: PLW0603
+
+    name = code.lower()
+    language = POLISH if name == "polish" or name == POLISH or name.startswith("pl-") else ENGLISH
+    if language != game_language:
+        game_language = language
+        apply_language()
+
+
 def with_select_buttons(options: dict[str, BoolOption]) -> list[BaseOption]:
     """Puts buttons for setting a whole group first in its menu, which is handy on the long ones."""
     return [
-        ButtonOption(
-            "Select All",
-            display_name="Zaznacz wszystkie",
-            description="Zaznacza wszystko na tej liście.",
-            on_press=lambda _: set_all(options, True),
+        label(
+            ButtonOption("Select All", on_press=lambda _: set_all(options, True)),
+            ("Zaznacz wszystkie", "Select all"),
+            ("Zaznacza wszystko na tej liście.", "Selects everything on this list."),
         ),
-        ButtonOption(
-            "Select None",
-            display_name="Odznacz wszystkie",
-            description="Odznacza wszystko na tej liście.",
-            on_press=lambda _: set_all(options, False),
+        label(
+            ButtonOption("Select None", on_press=lambda _: set_all(options, False)),
+            ("Odznacz wszystkie", "Select none"),
+            ("Odznacza wszystko na tej liście.", "Clears everything on this list."),
         ),
         *options.values(),
     ]
 
 
-def label(option: BaseOption, name: str, description: str) -> None:
-    """Sets what an option is called in the menus."""
-    option.display_name = option.description_title = name
-    option.description = description
+def submenu(identifier: str, children: list[BaseOption], name: Text, description: Text) -> NestedOption:
+    """Creates a menu inside the menu."""
+    return label(NestedOption(identifier, children=children), name, description)
+
+
+def both(text: str) -> Text:
+    """For names, which are the same in both languages."""
+    return (text, text)
+
+
+def in_sentence(name: str) -> str:
+    """Lower cases a name for use in a sentence, leaving ones like SMGs alone."""
+    return name if name[1:2].isupper() else name.lower()
+
+
+def named(texts: Text, polish: str, english: str) -> Text:
+    """Fills a name into a description, lower case, each language getting its own."""
+    return (polish.format(in_sentence(texts[0])), english.format(in_sentence(texts[1])))
 
 
 for key, option in rarity_options.items():
-    label(option, RARITY_LABELS[key], f"Ukrywaj itemy: {RARITY_LABELS[key].lower()}.")
+    label(option, RARITY_LABELS[key], named(RARITY_LABELS[key], "Ukrywaj itemy: {}.", "Hide {} items."))
 for key, option in highlight_rarity_options.items():
-    label(option, RARITY_LABELS[key], f"Podświetlaj itemy: {RARITY_LABELS[key].lower()}.")
+    label(option, RARITY_LABELS[key], named(RARITY_LABELS[key], "Podświetlaj itemy: {}.", "Highlight {} items."))
 for key, option in manufacturer_options.items():
-    label(option, key, f"Ukrywaj sprzęt firmy {key}.")
+    label(option, both(key), (f"Ukrywaj sprzęt firmy {key}.", f"Hide gear made by {key}."))
 for key, option in highlight_manufacturer_options.items():
-    label(option, key, f"Podświetlaj sprzęt firmy {key}.")
+    label(option, both(key), (f"Podświetlaj sprzęt firmy {key}.", f"Highlight gear made by {key}."))
 for key, option in gear_type_options.items():
-    label(option, GEAR_TYPE_LABELS[key], f"Ukrywaj: {GEAR_TYPE_LABELS[key].lower()}.")
+    label(option, GEAR_TYPE_LABELS[key], named(GEAR_TYPE_LABELS[key], "Ukrywaj: {}.", "Hide all {}."))
 for key, option in highlight_gear_type_options.items():
-    label(option, GEAR_TYPE_LABELS[key], f"Podświetlaj: {GEAR_TYPE_LABELS[key].lower()}.")
+    label(option, GEAR_TYPE_LABELS[key], named(GEAR_TYPE_LABELS[key], "Podświetlaj: {}.", "Highlight all {}."))
 for key, option in character_options.items():
-    label(option, key, f"Ukrywaj mody klasowe postaci {key}.")
+    label(option, both(key), (f"Ukrywaj mody klasowe postaci {key}.", f"Hide class mods for {key}."))
 for key, option in highlight_character_options.items():
-    label(option, key, f"Podświetlaj mody klasowe postaci {key}.")
+    label(option, both(key), (f"Podświetlaj mody klasowe postaci {key}.", f"Highlight class mods for {key}."))
 for key, option in firmware_options.items():
-    label(option, FIRMWARE_NAMES[key], f"Zawsze pokazuj sprzęt z firmware {FIRMWARE_NAMES[key]}.")
+    label(
+        option,
+        both(FIRMWARE_NAMES[key]),
+        (f"Zawsze pokazuj sprzęt z firmware {FIRMWARE_NAMES[key]}.", f"Always show gear with {FIRMWARE_NAMES[key]} firmware."),
+    )
 for key, option in highlight_firmware_options.items():
-    label(option, FIRMWARE_NAMES[key], f"Podświetlaj sprzęt z firmware {FIRMWARE_NAMES[key]}.")
+    label(
+        option,
+        both(FIRMWARE_NAMES[key]),
+        (f"Podświetlaj sprzęt z firmware {FIRMWARE_NAMES[key]}.", f"Highlight gear with {FIRMWARE_NAMES[key]} firmware."),
+    )
 for key, option in ammo_type_options.items():
-    label(option, GEAR_TYPE_LABELS[key], f"Ukrywaj amunicję: {GEAR_TYPE_LABELS[key].lower()}.")
+    label(option, GEAR_TYPE_LABELS[key], named(GEAR_TYPE_LABELS[key], "Ukrywaj amunicję: {}.", "Hide ammo for {}."))
 for key, option in pickup_options.items():
-    label(option, PICKUP_LABELS[key], f"Ukrywaj na ziemi: {PICKUP_LABELS[key].lower()}.")
+    label(option, PICKUP_LABELS[key], named(PICKUP_LABELS[key], "Ukrywaj na ziemi: {}.", "Hide {} on the ground."))
 for key, option in highlight_pickup_options.items():
-    label(option, PICKUP_LABELS[key], f"Podświetlaj na ziemi: {PICKUP_LABELS[key].lower()}.")
+    label(option, PICKUP_LABELS[key], named(PICKUP_LABELS[key], "Podświetlaj na ziemi: {}.", "Highlight {} on the ground."))
 
 label(
+    toggle_hiding,
+    ("Włącz lub wstrzymaj filtr", "Pause or resume the filter"),
+    ("Na chwilę wyłącza filtr, a kolejne naciśnięcie włącza go z powrotem.", "Turns the filter off for a moment, pressing it again turns it back on."),
+)
+label(
+    switch_filter_mode,
+    ("Przełącz tryb filtra", "Switch filter mode"),
+    ("Przełącza między ukrywaniem a podświetlaniem itemów.", "Switches between hiding and highlighting items."),
+)
+label(
+    print_loot_info,
+    ("Wypisz dane o lootcie", "Print loot info"),
+    ("Wypisuje do konsoli, co filtr widzi na każdym itemie. Przydatne przy problemach.", "Prints what the filter sees on each item to the console. Useful for problems."),
+)
+language_option = label(
+    localized_spinner("Language", LANGUAGE_AUTO, LANGUAGE_LABELS),
+    ("Język / Language", "Język / Language"),
+    (
+        "Automatycznie używa języka gry. Twój wybór zostaje zapisany.",
+        "Follows the game's language by default. What you pick here is saved.",
+    ),
+)
+language_option.after_change = apply_language
+label(
     filter_mode,
-    "Tryb filtra",
-    "Ukrywanie: wybrane itemy znikają z ziemi. Podświetlanie: wypada wszystko, a itemy wybrane w"
-    " filtrach podświetlania dostają mocny beam i znacznik na radarze.",
+    ("Tryb filtra", "Filter mode"),
+    (
+        "Ukrywanie: wybrane itemy znikają z ziemi. Podświetlanie: wypada wszystko, a itemy wybrane w"
+        " filtrach podświetlania dostają mocny beam i znacznik na radarze.",
+        "Hide: selected items disappear from the ground. Highlight: everything drops as normal, and"
+        " the items selected under the highlight filters get a strong beam and a radar marker.",
+    ),
+)
+label(
+    protected_rarity,
+    ("Chroń tę rzadkość i wyższe", "Protect this rarity and above"),
+    (
+        "Sprzęt tej rzadkości i lepszy ignoruje filtry firm i typów, więc ukrycie Jakobsa nie schowa"
+        " legendarnego Jakobsa. Filtr rzadkości nadal działa.",
+        "Gear of this rarity and better ignores the manufacturer and type filters, so hiding Jakobs"
+        " won't hide a legendary Jakobs. The rarity filter still applies.",
+    ),
 )
 label(
     minimum_level,
-    "Ukrywaj poniżej poziomu",
-    "Ukrywa sprzęt o niższym poziomie, z poszanowaniem ochrony rzadkości i wyjątków. 0 wyłącza.",
+    ("Ukrywaj poniżej poziomu", "Hide below level"),
+    (
+        "Ukrywa sprzęt o niższym poziomie, z poszanowaniem ochrony rzadkości i wyjątków. 0 wyłącza.",
+        "Hides gear of a lower level, respecting rarity protection and exceptions. 0 turns it off.",
+    ),
 )
 label(
     block_pickup,
-    "Blokuj podnoszenie ukrytych",
-    "Ukrytych itemów nie da się wycelować ani zebrać. Wyłącz, jeśli coś przez to nie działa.",
+    ("Blokuj podnoszenie ukrytych", "Block picking up hidden items"),
+    (
+        "Ukrytych itemów nie da się wycelować ani zebrać. Wyłącz, jeśli coś przez to nie działa.",
+        "Hidden items can't be targeted or picked up. Turn this off if it breaks something.",
+    ),
 )
 label(
     show_dropped,
-    "Pokazuj wyrzucone itemy",
-    "Itemy, które sam wyrzucisz z plecaka, zostają widoczne, nawet jeśli pasują do filtrów.",
+    ("Pokazuj wyrzucone itemy", "Show dropped items"),
+    (
+        "Itemy, które sam wyrzucisz z plecaka, zostają widoczne, nawet jeśli pasują do filtrów.",
+        "Items you drop from your backpack stay visible, even if they match the filters.",
+    ),
 )
-label(keep_firmware, "Zawsze pokazuj firmware", "Nie ukrywaj sprzętu z firmware zaznaczonym na liście poniżej.")
-label(keep_anointed, "Zawsze pokazuj namaszczone", "Nigdy nie ukrywaj sprzętu z anointmentem.")
-label(keep_shiny, "Zawsze pokazuj błyszczące", "Nigdy nie ukrywaj sprzętu shiny.")
-label(highlight_firmware, "Podświetlaj firmware", "Podświetlaj sprzęt z firmware zaznaczonym na liście poniżej.")
-label(highlight_anointed, "Podświetlaj namaszczone", "Podświetlaj cały sprzęt z anointmentem.")
-label(highlight_shiny, "Podświetlaj błyszczące", "Podświetlaj cały sprzęt shiny.")
-label(beam_intensity, "Jasność beamu", "Ile razy jaśniejszy od zwykłego ma być beam.")
-label(beam_size, "Rozmiar beamu", "Ile razy większy od zwykłego ma być beam.")
-label(show_radar, "Pokazuj znaczniki na radarze", "Znaczniki itemów, obracające się razem z Tobą.")
-label(radar_place, "Gdzie pokazywać znaczniki", "Na radarze gry albo na osobnym, małym radarze na ekranie.")
-label(show_left_on_radar, "Pokazuj niezebrany sprzęt", "W trybie ukrywania radar gry pokazuje sprzęt, który jeszcze leży.")
-label(radar_range, "Zasięg radaru", "Ile metrów do krawędzi radaru. Dalsze itemy zostają na krawędzi.")
-label(scan_interval, "Częstość skanowania", "Sekundy między szukaniem nowego lootu. Filtr sam zwalnia, gdy gra tego potrzebuje.")
+label(
+    keep_firmware,
+    ("Zawsze pokazuj firmware", "Always show firmware"),
+    ("Nie ukrywaj sprzętu z firmware zaznaczonym na liście poniżej.", "Never hide gear with firmware selected on the list below."),
+)
+label(
+    keep_anointed,
+    ("Zawsze pokazuj namaszczone", "Always show anointed"),
+    ("Nigdy nie ukrywaj sprzętu z anointmentem.", "Never hide gear with an anointment."),
+)
+label(keep_shiny, ("Zawsze pokazuj błyszczące", "Always show shiny"), ("Nigdy nie ukrywaj sprzętu shiny.", "Never hide shiny gear."))
+label(
+    highlight_firmware,
+    ("Podświetlaj firmware", "Highlight firmware"),
+    ("Podświetlaj sprzęt z firmware zaznaczonym na liście poniżej.", "Highlight gear with firmware selected on the list below."),
+)
+label(
+    highlight_anointed,
+    ("Podświetlaj namaszczone", "Highlight anointed"),
+    ("Podświetlaj cały sprzęt z anointmentem.", "Highlight all gear with an anointment."),
+)
+label(highlight_shiny, ("Podświetlaj błyszczące", "Highlight shiny"), ("Podświetlaj cały sprzęt shiny.", "Highlight all shiny gear."))
+label(beam_intensity, ("Jasność beamu", "Beam brightness"), ("Ile razy jaśniejszy od zwykłego ma być beam.", "How many times brighter than normal to make the beam."))
+label(beam_size, ("Rozmiar beamu", "Beam size"), ("Ile razy większy od zwykłego ma być beam.", "How many times bigger than normal to make the beam."))
+label(
+    show_radar,
+    ("Pokazuj znaczniki na radarze", "Show radar markers"),
+    ("Znaczniki itemów, obracające się razem z Tobą.", "Markers for items, which turn with you."),
+)
+label(
+    radar_place,
+    ("Gdzie pokazywać znaczniki", "Where to show markers"),
+    ("Na radarze gry albo na osobnym, małym radarze na ekranie.", "On the game's radar, or on a separate small radar on screen."),
+)
+label(
+    show_left_on_radar,
+    ("Pokazuj niezebrany sprzęt", "Show gear left behind"),
+    ("W trybie ukrywania radar gry pokazuje sprzęt, który jeszcze leży.", "When hiding, the game's radar shows gear that's still lying around."),
+)
+label(
+    radar_range,
+    ("Zasięg radaru", "Radar range"),
+    ("Ile metrów do krawędzi radaru. Dalsze itemy zostają na krawędzi.", "Metres to the edge of the radar. Items further away stay on its edge."),
+)
+label(
+    scan_interval,
+    ("Częstość skanowania", "Scan interval"),
+    ("Sekundy między szukaniem nowego lootu. Filtr sam zwalnia, gdy gra tego potrzebuje.", "Seconds between looking for new loot. The filter slows down by itself when the game needs it."),
+)
 
 # What decides what happens to a pickup. The radar and scan settings only affect how it's shown.
 filter_options = [
@@ -2380,101 +2646,109 @@ filter_options = [
     beam_size,
 ]
 
+MOD_DESCRIPTION: Text = (
+    "Filtr lootu: ukrywa wybrane itemy na ziemi albo mocno je podświetla, z radarem.",
+    "Loot filter: hides chosen items on the ground, or strongly highlights them, with a radar.",
+)
+
 mod = build_mod(
     on_disable=on_disable,
     options=[
+        language_option,
         filter_mode,
-        NestedOption(
+        submenu(
             "Hide By Rarity",
-            children=list(rarity_options.values()),
-            display_name="Ukrywaj: rzadkość",
-            description="Które rzadkości ukrywać na ziemi.",
+            list(rarity_options.values()),
+            ("Ukrywaj: rzadkość", "Hide: rarity"),
+            ("Które rzadkości ukrywać na ziemi.", "Which rarities to hide on the ground."),
         ),
-        NestedOption(
+        submenu(
             "Hide By Manufacturer",
-            children=with_select_buttons(manufacturer_options),
-            display_name="Ukrywaj: firmy",
-            description="Sprzęt których firm ukrywać na ziemi.",
+            with_select_buttons(manufacturer_options),
+            ("Ukrywaj: firmy", "Hide: manufacturers"),
+            ("Sprzęt których firm ukrywać na ziemi.", "Which manufacturers' gear to hide on the ground."),
         ),
-        NestedOption(
+        submenu(
             "Hide By Item Type",
-            children=with_select_buttons(gear_type_options),
-            display_name="Ukrywaj: typy itemów",
-            description="Które typy sprzętu ukrywać na ziemi.",
+            with_select_buttons(gear_type_options),
+            ("Ukrywaj: typy itemów", "Hide: item types"),
+            ("Które typy sprzętu ukrywać na ziemi.", "Which types of gear to hide on the ground."),
         ),
-        NestedOption(
+        submenu(
             "Hide Class Mods By Character",
-            children=with_select_buttons(character_options),
-            display_name="Ukrywaj: mody klasowe postaci",
-            description="Mody klasowe których postaci ukrywać na ziemi.",
+            with_select_buttons(character_options),
+            ("Ukrywaj: mody klasowe postaci", "Hide: class mods by character"),
+            ("Mody klasowe których postaci ukrywać na ziemi.", "Which characters' class mods to hide on the ground."),
         ),
-        NestedOption(
+        submenu(
             "Hide Pickups",
-            children=list(pickup_options.values()),
-            display_name="Ukrywaj: amunicja, zdrowie i inne",
-            description="Które przedmioty użytkowe ukrywać na ziemi.",
+            list(pickup_options.values()),
+            ("Ukrywaj: amunicja, zdrowie i inne", "Hide: ammo, health and more"),
+            ("Które przedmioty użytkowe ukrywać na ziemi.", "Which consumables to hide on the ground."),
         ),
-        NestedOption(
+        submenu(
             "Hide Ammo By Weapon",
-            children=with_select_buttons(ammo_type_options),
-            display_name="Ukrywaj: amunicja według broni",
-            description="Amunicję do których broni ukrywać na ziemi.",
+            with_select_buttons(ammo_type_options),
+            ("Ukrywaj: amunicja według broni", "Hide: ammo by weapon"),
+            ("Amunicję do których broni ukrywać na ziemi.", "Which weapons' ammo to hide on the ground."),
         ),
         minimum_level,
         block_pickup,
         show_dropped,
         protected_rarity,
         keep_firmware,
-        NestedOption(
+        submenu(
             "Keep Which Firmware",
-            children=with_select_buttons(firmware_options),
-            display_name="Który firmware zawsze pokazywać",
-            description=(
+            with_select_buttons(firmware_options),
+            ("Który firmware zawsze pokazywać", "Which firmware to always show"),
+            (
                 "Sprzęt z odznaczonym firmware nie ma już wyjątku i podlega zwykłym filtrom."
-                " Działa, gdy włączone jest Zawsze pokazuj firmware."
+                " Działa, gdy włączone jest Zawsze pokazuj firmware.",
+                "Gear with firmware that's not selected has no exception, and follows the normal filters."
+                " Works while Always show firmware is on.",
             ),
         ),
         keep_anointed,
         keep_shiny,
-        NestedOption(
+        submenu(
             "Highlight Filters",
-            children=[
-                NestedOption(
+            [
+                submenu(
                     "Highlight By Rarity",
-                    children=list(highlight_rarity_options.values()),
-                    display_name="Rzadkość",
-                    description="Które rzadkości podświetlać.",
+                    list(highlight_rarity_options.values()),
+                    ("Rzadkość", "Rarity"),
+                    ("Które rzadkości podświetlać.", "Which rarities to highlight."),
                 ),
-                NestedOption(
+                submenu(
                     "Highlight By Manufacturer",
-                    children=with_select_buttons(highlight_manufacturer_options),
-                    display_name="Firmy",
-                    description="Sprzęt których firm podświetlać.",
+                    with_select_buttons(highlight_manufacturer_options),
+                    ("Firmy", "Manufacturers"),
+                    ("Sprzęt których firm podświetlać.", "Which manufacturers' gear to highlight."),
                 ),
-                NestedOption(
+                submenu(
                     "Highlight By Item Type",
-                    children=with_select_buttons(highlight_gear_type_options),
-                    display_name="Typy itemów",
-                    description="Które typy sprzętu podświetlać.",
+                    with_select_buttons(highlight_gear_type_options),
+                    ("Typy itemów", "Item types"),
+                    ("Które typy sprzętu podświetlać.", "Which types of gear to highlight."),
                 ),
-                NestedOption(
+                submenu(
                     "Highlight Class Mods By Character",
-                    children=with_select_buttons(highlight_character_options),
-                    display_name="Mody klasowe postaci",
-                    description="Mody klasowe których postaci podświetlać.",
+                    with_select_buttons(highlight_character_options),
+                    ("Mody klasowe postaci", "Class mods by character"),
+                    ("Mody klasowe których postaci podświetlać.", "Which characters' class mods to highlight."),
                 ),
-                NestedOption(
+                submenu(
                     "Highlight Pickups",
-                    children=list(highlight_pickup_options.values()),
-                    display_name="Amunicja, zdrowie i inne",
-                    description="Które przedmioty użytkowe podświetlać.",
+                    list(highlight_pickup_options.values()),
+                    ("Amunicja, zdrowie i inne", "Ammo, health and more"),
+                    ("Które przedmioty użytkowe podświetlać.", "Which consumables to highlight."),
                 ),
                 highlight_firmware,
-                NestedOption(
+                submenu(
                     "Highlight Which Firmware",
-                    children=with_select_buttons(highlight_firmware_options),
-                    display_name="Który firmware podświetlać",
-                    description="Działa, gdy włączone jest Podświetlaj firmware.",
+                    with_select_buttons(highlight_firmware_options),
+                    ("Który firmware podświetlać", "Which firmware to highlight"),
+                    ("Działa, gdy włączone jest Podświetlaj firmware.", "Works while Highlight firmware is on."),
                 ),
                 highlight_anointed,
                 highlight_shiny,
@@ -2485,25 +2759,24 @@ mod = build_mod(
                 radar_place,
                 radar_range,
             ],
-            display_name="Podświetlanie: filtry i wygląd",
-            description="Co podświetlać w trybie podświetlania, i jak mocno.",
+            ("Podświetlanie: filtry i wygląd", "Highlight: filters and looks"),
+            ("Co podświetlać w trybie podświetlania, i jak mocno.", "What to highlight in highlight mode, and how strongly."),
         ),
         scan_interval,
-        ButtonOption(
-            "Reset Filters",
-            display_name="Przywróć domyślne filtry",
-            description="Ustawia wszystkie filtry jak po instalacji. Pozycja radaru i częstość skanowania zostają.",
-            on_press=lambda _: reset_to_defaults(),
+        label(
+            ButtonOption("Reset Filters", on_press=lambda _: reset_to_defaults()),
+            ("Przywróć domyślne filtry", "Reset filters to default"),
+            (
+                "Ustawia wszystkie filtry jak po instalacji. Pozycja radaru i częstość skanowania zostają.",
+                "Puts every filter back how it was when installed. Radar position and scan interval stay.",
+            ),
         ),
     ],
 )
 
-
-def fix_old_spinner_values() -> None:
-    """Settings saved before the menus were translated hold values which no longer exist."""
-    for option in (filter_mode, protected_rarity, radar_place):
-        if option.value not in option.choices:
-            option.value = option.default_value
-
-
-fix_old_spinner_values()
+# Steam's setting is there from the start, and what the HUD says replaces it once it's up
+steam_setting = steam_language()
+if steam_setting is not None:
+    set_game_language(steam_setting)
+else:
+    apply_language()

@@ -16,7 +16,12 @@ from PIL import Image, ImageDraw
 
 from patch_menu import patch_sdkmod
 
-VERSION = "1.4.0"
+VERSION = "1.5.0"
+# Windows picks a language for an MSI when it's built, so each language gets its own file
+LANGUAGES = (
+    ("PL", "pl-PL", "1045", "1250"),
+    ("EN", "en-US", "1033", "1252"),
+)
 VCREDIST_MINOR = "50"  # The oldest Visual C++ runtime which doesn't get replaced
 
 HERE = Path(__file__).resolve().parent
@@ -121,7 +126,6 @@ def main() -> None:
     banner, dialog = make_bitmaps()
     ca = build_custom_actions()
 
-    msi = DIST / f"GroundItemHider-Setup-{VERSION}.msi"
     env = {**os.environ, "DOTNET_ROLL_FORWARD": "Major"}
     # Everything from short paths: WiX can't start its own helpers from this workspace's long one
     with tempfile.TemporaryDirectory(prefix="gih") as short:
@@ -129,14 +133,18 @@ def main() -> None:
         shutil.copytree(PAYLOAD, link)
         tools = Path(short) / "t"
         shutil.copytree(HERE / "tools", tools)
-        subprocess.run(
-            [
+        for suffix, culture, language, codepage in LANGUAGES:
+            msi = DIST / f"Borderlands4LootFilter-Setup-{VERSION}-{suffix}.msi"
+            subprocess.run(
+                [
                 str(tools / "wix"), "build",
                 str(HERE / "src" / "Package.wxs"),
-                "-intermediatefolder", str(Path(short) / "i"),
+                "-intermediatefolder", str(Path(short) / "i" / suffix),
                 "-cabcache", str(Path(short) / "c"),
-                "-loc", str(HERE / "src" / "Strings.pl-PL.wxl"),
-                "-culture", "pl-PL",
+                "-loc", str(HERE / "src" / f"Strings.{culture}.wxl"),
+                "-culture", culture,
+                "-d", f"Lang={language}",
+                "-d", f"Codepage={codepage}",
                 "-arch", "x64",
                 "-ext", "WixToolset.UI.wixext/5.0.2",
                 "-d", f"ProductVersion={VERSION}",
@@ -149,11 +157,11 @@ def main() -> None:
                 "-d", f"BannerBmp={banner}",
                 "-d", f"DialogBmp={dialog}",
                 "-o", str(msi),
-            ],
-            check=True,
-            env=env,
-        )
-    print(msi, msi.stat().st_size)
+                ],
+                check=True,
+                env=env,
+            )
+            print(msi, msi.stat().st_size)
 
 
 if __name__ == "__main__":

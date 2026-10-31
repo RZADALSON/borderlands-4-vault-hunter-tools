@@ -104,7 +104,7 @@ try {
         Check 'update kept settings' ((Get-Content -LiteralPath "$fake\sdk_mods\settings\GroundItemHider.json" -Raw) -match '"mine": 2')
         Check 'update kept other mods' (Test-Path -LiteralPath "$fake\sdk_mods\OtherMod.sdkmod")
         Check 'update kept SDK files' (Test-Path -LiteralPath "$fake\OakGame\Binaries\Win64\Plugins\unrealsdk.dll")
-        $entries = @(Get-ChildItem 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall' | ForEach-Object { Get-ItemProperty $_.PSPath } | Where-Object { $_.DisplayName -like 'Ground Item Hider*' })
+        $entries = @(Get-ChildItem 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall' | ForEach-Object { Get-ItemProperty $_.PSPath } | Where-Object { $_.DisplayName -like 'Borderlands 4 Loot Filter*' })
         Check "only one entry in installed apps ($($entries.Count)), version $($entries[0].DisplayVersion)" ($entries.Count -eq 1)
         $code = Run "/x `"$Msi`" /qn /l*v `"$base\final_remove.log`""
         Check "final uninstall (exit $code)" ($code -eq 0)

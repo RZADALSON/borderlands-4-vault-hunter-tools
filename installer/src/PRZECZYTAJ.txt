@@ -1,4 +1,4 @@
-Ground Item Hider dla Borderlands 4
+Borderlands 4 Loot Filter
 
 Ten instalator kopiuje do folderu gry pakiet od kilku autorów. Żaden plik samej gry nie jest
 rozpowszechniany ani zmieniany.
@@ -6,7 +6,7 @@ rozpowszechniany ani zmieniany.
 
 Co zawiera
 
-Ground Item Hider
+Borderlands 4 Loot Filter
   Filtr lootu: ukrywa wybrane itemy na ziemi albo je podświetla. Licencja GPL-3.0.
   Kod źródłowy jest w sdk_mods\GroundItemHider.sdkmod (to zwykłe archiwum ZIP).
   Rozpoznawanie rzadkości jest zaadaptowane z BL4 Loot Filter (Lango, GPL-3.0):
@@ -36,5 +36,18 @@ Nie jest to produkt firmy Gearbox ani 2K.
 
 Odinstalowanie
 
-Ustawienia Windows, Zainstalowane aplikacje, Ground Item Hider dla Borderlands 4.
+Ustawienia Windows, Zainstalowane aplikacje, Borderlands 4 Loot Filter.
 Twoje ustawienia modów i mody doinstalowane osobno zostają w folderze sdk_mods.
+
+
+English
+
+This installer copies a bundle from several authors into the game's folder. No file of the game
+itself is distributed or changed. The list above says what's in it, under which licence, and where
+its source is. Borderlands 4 Loot Filter is GPL-3.0, its source is in sdk_mods\GroundItemHider.sdkmod,
+a plain ZIP archive. Oak2 Mod Manager is LGPL-3.0, BL4 Mod Menu is GPL-3.0 and was changed to fix its
+scrollbar in ui\menu.js (30 Oct 2026), and Python is under the PSF licence. The software comes with no
+warranty, and isn't a product of Gearbox or 2K.
+
+To uninstall: Windows Settings, Installed apps, Borderlands 4 Loot Filter. Your mod settings and any mods you
+added yourself stay in the sdk_mods folder.

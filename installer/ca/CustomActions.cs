@@ -55,7 +55,7 @@ public static class CustomActions
     [CustomAction]
     public static ActionResult ValidateGameFolder(Session session)
     {
-        string error = FolderProblem(session["INSTALLFOLDER"]);
+        string error = FolderProblem(session);
         session["GAME_FOLDER_OK"] = error == null ? "1" : "0";
         session["GAME_FOLDER_ERROR"] = error ?? "";
         return ActionResult.Success;
@@ -65,7 +65,7 @@ public static class CustomActions
     [CustomAction]
     public static ActionResult ValidateGameFolderExecute(Session session)
     {
-        string error = FolderProblem(session["INSTALLFOLDER"]);
+        string error = FolderProblem(session);
         if (error == null)
         {
             return ActionResult.Success;
@@ -111,15 +111,18 @@ public static class CustomActions
                 // 3010: needs a restart, 1638: a newer one is there, 1641: restarting
                 if (process.ExitCode != 0 && process.ExitCode != 3010 && process.ExitCode != 1638 && process.ExitCode != 1641)
                 {
-                    Warn(session, "Nie udało się zainstalować Microsoft Visual C++ Redistributable (kod "
-                        + process.ExitCode + "). Bez niego mody się nie uruchomią. Pobierz go ze strony Microsoftu: https://aka.ms/vs/17/release/vc_redist.x64.exe");
+                    Warn(session, Say(session,
+                        "Nie udało się zainstalować Microsoft Visual C++ Redistributable (kod " + process.ExitCode + "). Bez niego mody się nie uruchomią. Pobierz go ze strony Microsoftu: https://aka.ms/vs/17/release/vc_redist.x64.exe",
+                        "Couldn't install the Microsoft Visual C++ Redistributable (code " + process.ExitCode + "). The mods won't start without it. Get it from Microsoft: https://aka.ms/vs/17/release/vc_redist.x64.exe"));
                 }
             }
         }
         catch (Exception ex)
         {
             session.Log("Couldn't install the Visual C++ runtime: " + ex);
-            Warn(session, "Nie udało się zainstalować Microsoft Visual C++ Redistributable. Bez niego mody się nie uruchomią. Pobierz go ze strony Microsoftu: https://aka.ms/vs/17/release/vc_redist.x64.exe");
+            Warn(session, Say(session,
+                "Nie udało się zainstalować Microsoft Visual C++ Redistributable. Bez niego mody się nie uruchomią. Pobierz go ze strony Microsoftu: https://aka.ms/vs/17/release/vc_redist.x64.exe",
+                "Couldn't install the Microsoft Visual C++ Redistributable. The mods won't start without it. Get it from Microsoft: https://aka.ms/vs/17/release/vc_redist.x64.exe"));
         }
         finally
         {
@@ -161,15 +164,28 @@ public static class CustomActions
         }
     }
 
-    private static string FolderProblem(string folder)
+    private const string PolishLanguageId = "1045";
+
+    /// <summary>Picks the text for the language this installer was built in.</summary>
+    private static string Say(Session session, string polish, string english)
     {
+        return session["ProductLanguage"] == PolishLanguageId ? polish : english;
+    }
+
+    private static string FolderProblem(Session session)
+    {
+        string folder = session["INSTALLFOLDER"];
         if (string.IsNullOrWhiteSpace(folder) || !IsGameFolder(folder))
         {
-            return "W tym folderze nie ma gry. Wybierz główny folder Borderlands 4, ten z plikiem " + GameExe + ".";
+            return Say(session,
+                "W tym folderze nie ma gry. Wybierz główny folder Borderlands 4, ten z plikiem " + GameExe + ".",
+                "The game isn't in this folder. Choose the main Borderlands 4 folder, the one with " + GameExe + " in it.");
         }
         if (Process.GetProcessesByName(Path.GetFileNameWithoutExtension(GameExe)).Length > 0)
         {
-            return "Borderlands 4 jest uruchomione. Zamknij grę i spróbuj ponownie.";
+            return Say(session,
+                "Borderlands 4 jest uruchomione. Zamknij grę i spróbuj ponownie.",
+                "Borderlands 4 is running. Close the game and try again.");
         }
         return null;
     }

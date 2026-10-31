@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<WixLocalization Culture="en-US" Codepage="1252" xmlns="http://wixtoolset.org/schemas/v4/wxl">
+  <String Id="ProductName" Value="Borderlands 4 Loot Filter" />
+  <String Id="NewerInstalled" Value="A newer version of Borderlands 4 Loot Filter is already installed." />
+
+  <String Id="WelcomeDlgTitle" Value="{\WixUI_Font_Bigger}Borderlands 4 Loot Filter setup" />
+  <String Id="WelcomeDlgDescription" Value="Installs everything that's needed: the Python SDK, Borderlands 4 Loot Filter, BL4 Mod Menu and the Microsoft Visual C++ Redistributable.&#13;&#10;&#13;&#10;Close Borderlands 4 before installing. Your saves aren't changed." />
+
+  <String Id="InstallDirDlgTitle" Value="{\WixUI_Font_Title}Where's the game?" />
+  <String Id="InstallDirDlgDescription" Value="Check or choose the main Borderlands 4 folder." />
+  <String Id="InstallDirDlgFolderLabel" Value="The folder with Borderlands4.exe in it. Steam and Epic installs are detected automatically:" />
+
+  <String Id="ExitDialogTitle" Value="{\WixUI_Font_Bigger}All done" />
+  <String Id="ExitDialogDescription" Value="Start the game and press F7 to set up the filter. By default it hides white, green and blue items." />
+  <String Id="ExitNote" Value="The first start of the game prepares the mod menu. The game then shows a message in the top right corner: restart it, and F7 opens the full menu inside the game's interface.&#13;&#10;&#13;&#10;You can remove the mods under Installed apps in Windows Settings." />
+</WixLocalization>
